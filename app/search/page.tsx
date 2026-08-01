@@ -472,25 +472,42 @@ const uniqueTopics = [
       uniqueTopics
     ),
   }))
-  .sort((a, b) => {
+  .sort(
+  (
+    a: { paper: SearchResult; reasons: string[] },
+    b: { paper: SearchResult; reasons: string[] }
+  ) => {
     if (b.reasons.length !== a.reasons.length) {
       return b.reasons.length - a.reasons.length;
     }
 
     return b.paper.citations - a.paper.citations;
-  })
+  }
+)
   .slice(0, 6);
 
 const recommendedPapers =
   filteredRecommendations.map(
-    (item) => item.paper
+    (
+      item: {
+        paper: SearchResult;
+        reasons: string[];
+      }
+    ) => item.paper
   );
 
 const reasonsByPaper = Object.fromEntries(
-  filteredRecommendations.map((item) => [
-    item.paper.id,
-    item.reasons,
-  ])
+  filteredRecommendations.map(
+    (
+      item: {
+        paper: SearchResult;
+        reasons: string[];
+      }
+    ) => [
+      item.paper.id,
+      item.reasons,
+    ]
+  )
 );
 
 setRecommendations(recommendedPapers);

@@ -172,8 +172,24 @@ export default function CollectionDetailPage() {
     }
 
     setCollection(collectionData);
-    setArticles((articleLinks ?? []) as CollectionArticle[]);
-    setLoading(false);
+
+const normalizedArticleLinks: CollectionArticle[] = (
+  articleLinks ?? []
+).map((link) => {
+  const relatedArticle = Array.isArray(link.saved_articles)
+    ? link.saved_articles[0] ?? null
+    : link.saved_articles ?? null;
+
+  return {
+    id: link.id,
+    saved_article_id: link.saved_article_id,
+    added_at: link.added_at,
+    saved_articles: relatedArticle,
+  };
+});
+
+setArticles(normalizedArticleLinks);
+setLoading(false);
   }
 
   async function removeFromCollection(linkId: string) {
