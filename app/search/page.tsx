@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -39,6 +40,29 @@ type SearchHistoryItem = {
 
 type RecentlyViewedItem = SearchResult & {
   viewedAt: string;
+};
+
+type AuthorInstitution = {
+  id: string;
+  name: string;
+  countryCode: string | null;
+  type: string | null;
+};
+
+type AuthorResult = {
+  id: string;
+  openAlexUrl: string;
+  name: string;
+  orcid: string | null;
+  verified: boolean;
+  worksCount: number;
+  citedByCount: number;
+  hIndex: number;
+  i10Index: number;
+  twoYearMeanCitedness: number;
+  affiliation: string;
+  institutions: AuthorInstitution[];
+  topics: string[];
 };
 
 const GENERIC_RECOMMENDATION_TOPICS = new Set([
@@ -145,7 +169,18 @@ const [recommendationBasis, setRecommendationBasis] =
   useState<string[]>([]);
 
 const [recommendationReasons, setRecommendationReasons] =
-  useState<Record<string, string[]>>({});  
+  useState<Record<string, string[]>>({});
+  
+const [authorResults, setAuthorResults] =
+  useState<AuthorResult[]>([]);
+
+const [authorMessage, setAuthorMessage] =
+  useState("");  
+
+const [
+  showAllAuthorResults,
+  setShowAllAuthorResults,
+] = useState(false);
 
 useEffect(() => {
   try {
@@ -587,6 +622,66 @@ function runHistorySearch(item: SearchHistoryItem) {
   searchPapers(1, item);
 }
 
+async function searchResearchers(
+  authorQuery: string,
+  authorInstitution: string
+) {
+  setAuthorMessage("");
+  setShowAllAuthorResults(false);
+
+  if (authorQuery.trim().length < 2) {
+    setAuthorResults([]);
+    return;
+  }
+
+  try {
+    const params = new URLSearchParams({
+      q: authorQuery.trim(),
+    });
+
+    if (authorInstitution.trim()) {
+      params.set(
+        "institution",
+        authorInstitution.trim()
+      );
+    }
+
+    const response = await fetch(
+      `/api/authors?${params.toString()}`
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error(
+        "Researcher search failed:",
+        data
+      );
+
+      setAuthorResults([]);
+      setAuthorMessage(
+        data.error ||
+          "Unable to search researchers."
+      );
+
+      return;
+    }
+
+    setAuthorResults(data.authors || []);
+    setAuthorMessage(data.message || "");
+  } catch (error) {
+    console.error(
+      "Researcher request failed:",
+      error
+    );
+
+    setAuthorResults([]);
+    setAuthorMessage(
+      "Unable to search researchers. Publication results are still shown below."
+    );
+  }
+}
+
  async function searchPapers(
   page = 1,
   historyItem?: SearchHistoryItem
@@ -620,9 +715,25 @@ function runHistorySearch(item: SearchHistoryItem) {
   }
 
   setLoading(true);
-  setSearchMessage("");
-  setResults([]);
-  if (page === 1 && !historyItem) {
+setSearchMessage("");
+setResults([]);
+
+if (activeSearchMode !== "author") {
+  setAuthorResults([]);
+  setAuthorMessage("");
+}
+
+if (page === 1 && activeSearchMode === "author") {
+  setAuthorResults([]);
+  setAuthorMessage("");
+
+  await searchResearchers(
+    activeQuery,
+    activeInstitution
+  );
+}
+
+if (page === 1 && !historyItem) {
   saveSearchToHistory();
 }
 
@@ -1254,16 +1365,22 @@ setSearchMessage("");
       <div className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row">
   <select
-    value={searchMode}
-    onChange={(e) => {
-      const nextMode = e.target.value;
+  value={searchMode}
+  onChange={(e) => {
+    const nextMode = e.target.value;
 
-      setSearchMode(nextMode);
+    setSearchMode(nextMode);
 
-      if (nextMode !== "author") {
-        setInstitution("");
-      }
-    }}
+    setAuthorResults([]);
+    setAuthorMessage("");
+
+    // Reset researcher card expansion
+    setShowAllAuthorResults(false);
+
+    if (nextMode !== "author") {
+      setInstitution("");
+    }
+  }}
     className="rounded-2xl border border-slate-300 bg-white px-5 py-4 font-semibold outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 lg:w-48"
   >
     <option value="keyword">
@@ -1376,27 +1493,33 @@ setSearchMessage("");
 </select>
 
   <button
-    onClick={() => {
-      setSearchMode("keyword");
-      setWorkType("any");
-      setInstitution("");
-      setSort("relevance");
-      setYear("any");
-      setOpenAccessOnly(false);
-      setSearchMessage("");
-      setCurrentPage(1);
-setTotalPages(0);
-setTotalResults(0);
-setResults([]);
-    }}
-    className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold transition hover:border-indigo-300 hover:bg-indigo-50/40"
-  >
-Clear Filters
-  </button>
-</div>
-      </div>
+  type="button"
+  onClick={() => {
+    setSearchMode("keyword");
+    setWorkType("any");
+    setInstitution("");
+    setSort("relevance");
+    setYear("any");
+    setOpenAccessOnly(false);
 
-      {searchMessage && !loading && (
+    setSearchMessage("");
+    setAuthorMessage("");
+    setAuthorResults([]);
+    setShowAllAuthorResults(false);
+
+    setCurrentPage(1);
+    setTotalPages(0);
+    setTotalResults(0);
+    setResults([]);
+  }}
+  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold transition hover:border-indigo-300 hover:bg-indigo-50/40"
+>
+  Clear Filters
+</button>
+</div>
+</div>
+
+{searchMessage && !loading && (
   <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
     {searchMessage}
   </div>
@@ -1412,11 +1535,198 @@ Clear Filters
         <p className="mt-8 text-slate-500">Searching scholarly literature...</p>
       )}
 
+      {!loading &&
+  searchMode === "author" &&
+  authorResults.length > 0 && (
+    <section className="mt-8 rounded-[2rem] border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-emerald-50 p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.25em] text-indigo-700">
+          Researcher Discovery
+        </p>
+
+        <h2 className="mt-2 text-2xl font-black text-slate-950">
+          Researchers ({authorResults.length})
+        </h2>
+
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Showing the best matching researchers
+          before their publications.
+        </p>
+      </div>
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        {(
+  showAllAuthorResults
+    ? authorResults
+    : authorResults.slice(0, 1)
+).map((author, index) => (
+          <article
+            key={author.id}
+            className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-indigo-300 hover:shadow-lg"
+          >
+            <div className="flex items-start gap-4">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-2xl font-black text-white shadow-md">
+                {author.name
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0])
+                  .join("")
+                  .toUpperCase()}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+  <h3 className="text-xl font-black text-slate-950">
+    {author.name}
+  </h3>
+
+  {index === 0 && (
+    <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-700">
+      Best match
+    </span>
+  )}
+
+                  {author.verified && (
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+                      ORCID linked
+                    </span>
+                  )}
+                </div>
+
+                <p className="mt-2 font-semibold text-slate-700">
+                  {author.affiliation}
+                </p>
+
+                <p className="mt-1 text-xs font-semibold text-slate-400">
+                  OpenAlex ID: {author.id}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                [
+                  "Publications",
+                  author.worksCount.toLocaleString(),
+                ],
+                [
+                  "Citations",
+                  author.citedByCount.toLocaleString(),
+                ],
+                ["h-index", author.hIndex],
+                ["i10-index", author.i10Index],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                >
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    {label}
+                  </p>
+
+                  <p className="mt-2 text-xl font-black text-slate-950">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {author.topics.length > 0 && (
+              <div className="mt-5">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Research areas
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {author.topics
+                    .slice(0, 5)
+                    .map((topic) => (
+                      <span
+                        key={topic}
+                        className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700"
+                      >
+                        {topic}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-200 pt-5">
+              <Link
+                href={`/researcher/${author.id}`}
+                className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+              >
+                View Researcher Profile
+              </Link>
+
+              <a
+                href={author.openAlexUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+              >
+                OpenAlex Record
+              </a>
+
+              {author.orcid && (
+                <a
+                  href={author.orcid}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xl border border-emerald-200 px-5 py-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
+                >
+                  ORCID
+                </a>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+      {authorResults.length > 1 && (
+  <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/80 px-5 py-4">
+    <p className="text-sm text-slate-600">
+      {showAllAuthorResults
+        ? `Showing all ${authorResults.length} possible researcher matches.`
+        : `${authorResults.length - 1} other possible matches are available.`}
+    </p>
+
+    <button
+      type="button"
+      onClick={() =>
+        setShowAllAuthorResults(
+          (current) => !current
+        )
+      }
+      className="rounded-xl border border-indigo-200 px-4 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+    >
+      {showAllAuthorResults
+        ? "Show Best Match Only"
+        : "Show Other Possible Matches"}
+    </button>
+  </div>
+)}
+    </section>
+  )}
+
+  {!loading &&
+  searchMode === "author" &&
+  authorMessage &&
+  authorResults.length === 0 && (
+    <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
+      {authorMessage}
+    </div>
+  )}
+
       {!loading && results.length > 0 && (
   <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
     <p className="text-sm font-semibold text-slate-600">
-      {totalResults.toLocaleString()} results found
-    </p>
+  {totalResults.toLocaleString()}{" "}
+  {searchMode === "author"
+    ? "publications found"
+    : "results found"}
+</p>
 
     <p className="text-sm text-slate-500">
       Page {currentPage} of {totalPages}
