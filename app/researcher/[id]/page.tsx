@@ -1,8 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useParams } from "next/navigation";
+import { QRCodeSVG } from "qrcode.react";
 
 type Institution = {
   id: string;
@@ -638,8 +643,12 @@ export default function ResearcherPage() {
     useState<PublicationSort>("tab-order");
 
   const [shareMessage, setShareMessage] =
-    useState("");
+  useState("");
 
+const [showShareMenu, setShowShareMenu] =
+  useState(false);
+const [showQrDialog, setShowQrDialog] =
+  useState(false);
   const [exportFormat, setExportFormat] =
   useState<ExportFormat>("csv");
 
@@ -694,23 +703,38 @@ const [exportMessage, setExportMessage] =
     }
   }, [researcherId]);
 
-  async function copyProfileLink() {
-    try {
-      await navigator.clipboard.writeText(
-        window.location.href
-      );
-
-      setShareMessage("Profile link copied.");
-    } catch {
-      setShareMessage(
-        "Unable to copy the profile link."
-      );
-    }
-
-    window.setTimeout(() => {
-      setShareMessage("");
-    }, 2500);
+  function getShareableProfileUrl() {
+  if (typeof window === "undefined") {
+    return "";
   }
+
+  if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  ) {
+    return `https://openscholar-web.vercel.app/researcher/${researcherId}`;
+  }
+
+  return window.location.href;
+}
+
+  async function copyProfileLink() {
+  try {
+    await navigator.clipboard.writeText(
+      getShareableProfileUrl()
+    );
+
+    setShareMessage("Profile link copied.");
+  } catch {
+    setShareMessage(
+      "Unable to copy the profile link."
+    );
+  }
+
+  window.setTimeout(() => {
+    setShareMessage("");
+  }, 2500);
+}
 
   async function shareProfile() {
     if (!data) {
@@ -720,7 +744,7 @@ const [exportMessage, setExportMessage] =
     const shareData = {
       title: `${data.profile.name} — OpenScholar Researcher Profile`,
       text: `View ${data.profile.name}'s researcher profile on OpenScholar.`,
-      url: window.location.href,
+      url: getShareableProfileUrl(),
     };
 
     try {
@@ -741,6 +765,138 @@ const [exportMessage, setExportMessage] =
       await copyProfileLink();
     }
   }
+
+function openShareWindow(url: string) {
+  window.open(
+    url,
+    "_blank",
+    "noopener,noreferrer,width=720,height=640"
+  );
+}
+
+function shareByEmail() {
+  if (!data) {
+    return;
+  }
+
+  const subject = encodeURIComponent(
+    `${data.profile.name} — OpenScholar Researcher Profile`
+  );
+
+  const body = encodeURIComponent(
+    `View ${data.profile.name}'s researcher profile on OpenScholar:\n\n${getShareableProfileUrl()}`
+  );
+
+  window.location.href =
+    `mailto:?subject=${subject}&body=${body}`;
+
+  setShowShareMenu(false);
+}
+
+function shareOnLinkedIn() {
+  const url = encodeURIComponent(
+    getShareableProfileUrl()
+  );
+
+  openShareWindow(
+    `https://www.linkedin.com/sharing/share-offsite/?url=${url}`
+  );
+
+  setShowShareMenu(false);
+}
+
+function shareOnX() {
+  if (!data) {
+    return;
+  }
+
+  const text = encodeURIComponent(
+    `View ${data.profile.name}'s researcher profile on OpenScholar`
+  );
+
+  const url = encodeURIComponent(
+    getShareableProfileUrl()
+  );
+
+  openShareWindow(
+    `https://twitter.com/intent/tweet?text=${text}&url=${url}`
+  );
+
+  setShowShareMenu(false);
+}
+
+function shareOnFacebook() {
+  const url = encodeURIComponent(
+    getShareableProfileUrl()
+  );
+
+  openShareWindow(
+    `https://www.facebook.com/sharer/sharer.php?u=${url}`
+  );
+
+  setShowShareMenu(false);
+}
+
+function downloadProfileQrCode() {
+  const svg =
+    document.querySelector(
+      "#profile-qr-code svg"
+    );
+
+  if (!(svg instanceof SVGElement)) {
+    setShareMessage(
+      "Unable to download the QR code."
+    );
+
+    return;
+  }
+
+  const serializer = new XMLSerializer();
+
+  const svgContent =
+    serializer.serializeToString(svg);
+
+  const completeSvg = svgContent.includes(
+    'xmlns="http://www.w3.org/2000/svg"'
+  )
+    ? svgContent
+    : svgContent.replace(
+        "<svg",
+        '<svg xmlns="http://www.w3.org/2000/svg"'
+      );
+
+  const blob = new Blob([completeSvg], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+
+  const url = URL.createObjectURL(blob);
+
+  const anchor =
+    document.createElement("a");
+
+  anchor.href = url;
+
+  anchor.download =
+    `${
+      safeFilename(
+        `${data?.profile.name || "researcher"}-profile-qr`
+      ) || "researcher-profile-qr"
+    }.svg`;
+
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+
+  URL.revokeObjectURL(url);
+
+  setShareMessage(
+    "Profile QR code downloaded."
+  );
+
+  window.setTimeout(() => {
+    setShareMessage("");
+  }, 2500);
+}
 
 function exportPublications(
   scope: ExportScope
@@ -1028,6 +1184,26 @@ function exportPublications(
   const displayedPublicationCount =
     publications.length;
 
+  const averageCitations =
+  profile.worksCount > 0
+    ? profile.citedByCount /
+      profile.worksCount
+    : 0;
+
+const alternativeNames =
+  Array.from(
+    new Set(
+      profile.alternativeNames
+        .map((name) => name.trim())
+        .filter(
+          (name) =>
+            name &&
+            normalizeText(name) !==
+              normalizeText(profile.name)
+        )
+    )
+  ).slice(0, 6);  
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
       <div className="mb-6 print:hidden">
@@ -1039,125 +1215,260 @@ function exportPublications(
         </Link>
       </div>
 
-      <section className="overflow-hidden rounded-[2rem] border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-emerald-50 shadow-sm">
-        <div className="p-7 md:p-10">
-          <div className="flex flex-col gap-7 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex flex-col gap-5 sm:flex-row">
-              <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[2rem] bg-gradient-to-br from-indigo-700 to-violet-600 text-4xl font-black text-white shadow-xl">
-                {initials}
-              </div>
+      <section className="relative overflow-visible rounded-[2rem] border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-emerald-50 shadow-sm">
+  <div className="p-7 md:p-10">
+    <div className="flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
+      <div className="flex flex-col gap-6 sm:flex-row">
+        <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[2rem] bg-gradient-to-br from-indigo-700 to-violet-600 text-4xl font-black text-white shadow-xl">
+          {initials}
+        </div>
 
-              <div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-3xl font-black leading-tight text-slate-950 md:text-4xl">
-                    {profile.name}
-                  </h1>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-black leading-tight text-slate-950 md:text-4xl">
+              {profile.name}
+            </h1>
 
-                  {profile.verified && (
-                    <span className="rounded-full bg-emerald-100 px-4 py-2 text-xs font-bold text-emerald-700">
-                      ORCID linked
-                    </span>
-                  )}
-                </div>
-
-                <p className="mt-4 text-lg font-bold text-slate-700">
-                  {profile.affiliation}
-                </p>
-
-                <p className="mt-2 text-sm font-semibold text-slate-500">
-                  OpenAlex ID: {profile.id}
-                </p>
-
-                {profile.alternativeNames.length >
-                  0 && (
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                    Also indexed as:{" "}
-                    {profile.alternativeNames
-                      .slice(0, 6)
-                      .join(", ")}
-                  </p>
-                )}
-
-                <div className="mt-5 flex flex-wrap gap-3 print:hidden">
-                  <a
-                    href={profile.openAlexUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
-                  >
-                    OpenAlex Record
-                  </a>
-
-                  {profile.orcid && (
-                    <a
-                      href={profile.orcid}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
-                    >
-                      ORCID
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 print:hidden">
-              <button
-                type="button"
-                onClick={shareProfile}
-                className="rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
-              >
-                Share Profile
-              </button>
-
-              <button
-                type="button"
-                onClick={copyProfileLink}
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-              >
-                Copy Link
-              </button>
-
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
-              >
-                Print Profile
-              </button>
-            </div>
+            {profile.verified && (
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-100 px-4 py-2 text-xs font-bold text-emerald-700">
+                <span aria-hidden="true">
+                  ✓
+                </span>
+                ORCID verified
+              </span>
+            )}
           </div>
 
-          <div className="mt-9 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {[
-              ["h-index", profile.hIndex],
-              [
-                "Total Citations",
-                profile.citedByCount.toLocaleString(),
-              ],
-              [
-                "Publications",
-                profile.worksCount.toLocaleString(),
-              ],
-              ["i10-index", profile.i10Index],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm"
-              >
-                <p className="text-xs font-bold uppercase tracking-[0.12em] text-indigo-600">
-                  {label}
-                </p>
+          <p className="mt-3 text-sm font-bold uppercase tracking-[0.16em] text-indigo-600">
+            Researcher Profile
+          </p>
 
-                <p className="mt-3 text-3xl font-black text-slate-950">
-                  {value}
-                </p>
+          <p className="mt-3 text-lg font-bold text-slate-700">
+            {profile.affiliation}
+          </p>
+
+          <p className="mt-2 text-sm font-semibold text-slate-500">
+            OpenAlex ID: {profile.id}
+          </p>
+
+          {alternativeNames.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Also indexed as
+              </p>
+
+              <div className="mt-2 flex flex-wrap gap-2">
+                {alternativeNames.map(
+                  (name) => (
+                    <span
+                      key={name}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600"
+                    >
+                      {name}
+                    </span>
+                  )
+                )}
               </div>
-            ))}
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-wrap gap-3 print:hidden">
+            <a
+              href={profile.openAlexUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+            >
+              OpenAlex
+            </a>
+
+            {profile.orcid && (
+              <a
+                href={profile.orcid}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
+              >
+                ORCID
+              </a>
+            )}
           </div>
         </div>
-      </section>
+      </div>
+
+      <div className="relative flex flex-wrap gap-3 print:hidden">
+        <button
+          type="button"
+          onClick={() =>
+            setShowShareMenu(
+              (current) => !current
+            )
+          }
+          aria-expanded={showShareMenu}
+          className="rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+        >
+          Share
+        </button>
+
+        <button
+          type="button"
+          onClick={copyProfileLink}
+          className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+        >
+          Copy Link
+        </button>
+
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+        >
+          Print Profile
+        </button>
+
+        {showShareMenu && (
+          <div className="absolute right-0 top-full z-40 mt-3 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+            <p className="px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+              Share researcher profile
+            </p>
+
+            <button
+              type="button"
+              onClick={async () => {
+                await copyProfileLink();
+                setShowShareMenu(false);
+              }}
+              className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Copy profile link
+            </button>
+
+            <button
+  type="button"
+  onClick={() => {
+    setShowQrDialog(true);
+    setShowShareMenu(false);
+  }}
+  className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+>
+  Show profile QR code
+</button>
+
+            <button
+              type="button"
+              onClick={shareByEmail}
+              className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Share by email
+            </button>
+
+            <button
+              type="button"
+              onClick={shareOnLinkedIn}
+              className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Share on LinkedIn
+            </button>
+
+            <button
+              type="button"
+              onClick={shareOnX}
+              className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Share on X
+            </button>
+
+            <button
+              type="button"
+              onClick={shareOnFacebook}
+              className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              Share on Facebook
+            </button>
+
+            {typeof navigator !==
+              "undefined" &&
+              "share" in navigator && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await shareProfile();
+                    setShowShareMenu(false);
+                  }}
+                  className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+                >
+                  More sharing options
+                </button>
+              )}
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div className="mt-9 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+      {[
+        ["h-index", profile.hIndex],
+        [
+          "Publications",
+          profile.worksCount.toLocaleString(),
+        ],
+        [
+          "Total Citations",
+          profile.citedByCount.toLocaleString(),
+        ],
+        [
+          "Average Citations",
+          averageCitations.toFixed(1),
+        ],
+        ["i10-index", profile.i10Index],
+      ].map(([label, value]) => (
+        <div
+          key={label}
+          className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm"
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-indigo-600">
+            {label}
+          </p>
+
+          <p className="mt-3 text-3xl font-black text-slate-950">
+            {value}
+          </p>
+        </div>
+      ))}
+    </div>
+
+    {profile.topics.length > 0 && (
+      <div className="mt-8 border-t border-indigo-100 pt-7">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-700">
+              Expertise
+            </p>
+
+            <h2 className="mt-2 text-xl font-black text-slate-950">
+              Research Areas
+            </h2>
+          </div>
+
+          <span className="text-xs font-semibold text-slate-500">
+            {profile.topics.length} topics
+          </span>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {profile.topics.map((topic) => (
+            <span
+              key={topic}
+              className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700"
+            >
+              {topic}
+            </span>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+</section>
 
       {shareMessage && (
         <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700 shadow-xl print:hidden">
@@ -1171,37 +1482,113 @@ function exportPublications(
   </div>
 )}
 
-      {profile.topics.length > 0 && (
-        <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-700">
-                Expertise
-              </p>
+{showQrDialog && (
+  <div
+    className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 px-5 py-8 print:hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="profile-qr-title"
+    onClick={() =>
+      setShowQrDialog(false)
+    }
+  >
+    <div
+      className="w-full max-w-md rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl"
+      onClick={(event) =>
+        event.stopPropagation()
+      }
+    >
+      <div className="flex items-start justify-between gap-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+            OpenScholar Profile
+          </p>
 
-              <h2 className="mt-2 text-2xl font-black text-slate-950">
-                Research Areas
-              </h2>
-            </div>
+          <h2
+            id="profile-qr-title"
+            className="mt-2 text-2xl font-black text-slate-950"
+          >
+            Profile QR Code
+          </h2>
 
-            <span className="text-sm font-semibold text-slate-500">
-              {profile.topics.length} research topics
-            </span>
-          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Scan to open the researcher profile.
+          </p>
+        </div>
 
-          <div className="mt-5 flex flex-wrap gap-3">
-            {profile.topics.map((topic) => (
-              <span
-                key={topic}
-                className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700"
-              >
-                {topic}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
+        <button
+          type="button"
+          onClick={() =>
+            setShowQrDialog(false)
+          }
+          aria-label="Close QR code dialog"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-xl font-bold text-slate-500 transition hover:bg-slate-50"
+        >
+          ×
+        </button>
+      </div>
 
+      <div className="mt-7 flex justify-center">
+        <div
+          id="profile-qr-code"
+          className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <QRCodeSVG
+            value={getShareableProfileUrl()}
+            title={`${profile.name} — OpenScholar Researcher Profile`}
+            size={240}
+            level="H"
+            marginSize={2}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl bg-slate-50 px-4 py-3">
+        <p className="font-bold text-slate-900">
+          {profile.name}
+        </p>
+
+        <p className="mt-1 text-sm text-slate-500">
+          {profile.affiliation}
+        </p>
+
+        <p className="mt-3 break-all text-xs font-semibold text-indigo-700">
+          {getShareableProfileUrl()}
+        </p>
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={copyProfileLink}
+          className="rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+        >
+          Copy Profile Link
+        </button>
+
+        <button
+          type="button"
+          onClick={downloadProfileQrCode}
+          className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+        >
+          Download QR Code
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() =>
+          setShowQrDialog(false)
+        }
+        className="mt-3 w-full rounded-xl px-5 py-3 text-sm font-bold text-slate-500 transition hover:bg-slate-50"
+      >
+        Close
+      </button>
+    </div>
+  </div>
+)}
+
+      
       {institutions.length > 0 && (
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
           <h2 className="text-2xl font-black text-slate-950">
