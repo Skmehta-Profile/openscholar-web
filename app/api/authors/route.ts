@@ -45,6 +45,82 @@ function cleanOpenAlexId(value: string) {
   return value.substring(value.lastIndexOf("/") + 1);
 }
 
+function normalizeText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function calculateNameMatchScore(
+  researcherName: string,
+  searchQuery: string
+) {
+  const researcher = normalizeText(researcherName);
+  const query = normalizeText(searchQuery);
+
+  if (!researcher || !query) {
+    return 0;
+  }
+
+  if (researcher === query) {
+    return 1000;
+  }
+
+  if (
+    researcher.startsWith(query) ||
+    query.startsWith(researcher)
+  ) {
+    return 700;
+  }
+
+  if (researcher.includes(query)) {
+    return 500;
+  }
+
+  const researcherWords = new Set(
+    researcher.split(" ")
+  );
+
+  const queryWords = query.split(" ");
+
+  const matchingWords = queryWords.filter((word) =>
+    researcherWords.has(word)
+  ).length;
+
+  return matchingWords * 100;
+}
+
+function calculateInstitutionMatchScore(
+  institutions: {
+    name: string;
+  }[],
+  requestedInstitution: string
+) {
+  const requested = normalizeText(
+    requestedInstitution
+  );
+
+  if (!requested) {
+    return 0;
+  }
+
+  const matched = institutions.some((item) => {
+    const institutionName = normalizeText(item.name);
+
+    return (
+      institutionName === requested ||
+      institutionName.includes(requested) ||
+      requested.includes(institutionName)
+    );
+  });
+
+  return matched ? 800 : 0;
+}
+
 async function resolveInstitutionId(
   institutionName: string,
   apiKey: string
@@ -230,14 +306,48 @@ url.searchParams.set("api_key", apiKey);
           .map((topic) => topic.display_name as string) ||
         [];
 
+const researcherName =
+  author.display_name ||
+  "Unknown researcher";
+
+const nameMatchScore =
+  calculateNameMatchScore(
+    researcherName,
+    query
+  );
+
+const institutionMatchScore =
+  calculateInstitutionMatchScore(
+    finalInstitutions,
+    institution
+  );
+
+const orcidScore = author.orcid ? 40 : 0;
+
+const worksScore = Math.min(
+  author.works_count || 0,
+  200
+);
+
+const citationScore = Math.min(
+  Math.log10((author.cited_by_count || 0) + 1) *
+    30,
+  150
+);
+
+const rankingScore =
+  nameMatchScore +
+  institutionMatchScore +
+  orcidScore +
+  worksScore +
+  citationScore;
+
       return {
         id: cleanOpenAlexId(author.id),
 
         openAlexUrl: author.id,
 
-        name:
-          author.display_name ||
-          "Unknown researcher",
+        name: researcherName,
 
         orcid: author.orcid || null,
 
@@ -266,8 +376,20 @@ url.searchParams.set("api_key", apiKey);
         institutions: finalInstitutions,
 
         topics,
-      };
-    });
+        rankingScore,
+          };
+  })
+  .sort((a, b) => {
+    if (b.rankingScore !== a.rankingScore) {
+      return b.rankingScore - a.rankingScore;
+    }
+
+    if (b.citedByCount !== a.citedByCount) {
+      return b.citedByCount - a.citedByCount;
+    }
+
+    return b.worksCount - a.worksCount;
+  });
 
     return NextResponse.json({
       authors,

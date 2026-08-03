@@ -46,10 +46,18 @@ type Publication = {
   sourceUrl: string;
 };
 
+type PublicationMeta = {
+  profileWorksCount: number;
+  apiWorksCount: number;
+  loadedCount: number;
+  requestsUsed: number;
+  complete: boolean;
+};
+
 type ResearcherResponse = {
   profile: ResearcherProfile;
-  latestPublications: Publication[];
-  mostCitedPublications: Publication[];
+  publications: Publication[];
+  publicationMeta: PublicationMeta;
 };
 
 type PublicationTab = "latest" | "cited";
@@ -62,8 +70,419 @@ type PublicationSort =
   | "least-cited"
   | "title";
 
+  type ExportFormat =
+  | "csv"
+  | "bibtex"
+  | "ris"
+  | "json"
+  | "text";
+
+type ExportScope = "all" | "current";
+
 function normalizeText(value: string) {
   return value.toLowerCase().trim();
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<[^>]*>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function normaliseDoi(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return value
+    .replace(/^https?:\/\/doi\.org\//i, "")
+    .trim();
+}
+
+function safeFilename(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function escapeCsv(value: unknown) {
+  const text =
+    value === null || value === undefined
+      ? ""
+      : String(value);
+
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function escapeBibTeX(value: string) {
+  return stripHtml(value)
+    .replace(/\\/g, "\\textbackslash{}")
+    .replace(/{/g, "\\{")
+    .replace(/}/g, "\\}")
+    .replace(/%/g, "\\%")
+    .replace(/&/g, "\\&")
+    .replace(/#/g, "\\#")
+    .replace(/_/g, "\\_");
+}
+
+function splitAuthors(value: string) {
+  if (
+    !value ||
+    value === "Authors not available"
+  ) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((author) => author.trim())
+    .filter(Boolean);
+}
+
+function createCitationKey(
+  publication: Publication,
+  index: number
+) {
+  const authors = splitAuthors(
+    publication.authors
+  );
+
+  const firstAuthor =
+    authors[0]
+      ?.split(/\s+/)
+      .filter(Boolean)
+      .at(-1) || "publication";
+
+  const year =
+    publication.year || "nd";
+
+  return safeFilename(
+    `${firstAuthor}-${year}-${index + 1}`
+  ).replace(/-/g, "");
+}
+
+function bibTeXEntryType(type: string) {
+  const cleanType = type.toLowerCase();
+
+  if (
+    cleanType.includes("book-chapter") ||
+    cleanType.includes("book chapter")
+  ) {
+    return "incollection";
+  }
+
+  if (cleanType.includes("book")) {
+    return "book";
+  }
+
+  if (
+    cleanType.includes("proceedings") ||
+    cleanType.includes("conference")
+  ) {
+    return "inproceedings";
+  }
+
+  if (
+    cleanType.includes("thesis") ||
+    cleanType.includes("dissertation")
+  ) {
+    return "phdthesis";
+  }
+
+  return "article";
+}
+
+function risEntryType(type: string) {
+  const cleanType = type.toLowerCase();
+
+  if (
+    cleanType.includes("book-chapter") ||
+    cleanType.includes("book chapter")
+  ) {
+    return "CHAP";
+  }
+
+  if (cleanType.includes("book")) {
+    return "BOOK";
+  }
+
+  if (
+    cleanType.includes("conference") ||
+    cleanType.includes("proceedings")
+  ) {
+    return "CPAPER";
+  }
+
+  if (
+    cleanType.includes("thesis") ||
+    cleanType.includes("dissertation")
+  ) {
+    return "THES";
+  }
+
+  return "JOUR";
+}
+
+function buildCsv(
+  publications: Publication[]
+) {
+  const headers = [
+    "Title",
+    "Authors",
+    "Journal",
+    "Year",
+    "Publication Date",
+    "Type",
+    "Citations",
+    "DOI",
+    "Open Access",
+    "Full Text URL",
+    "Source URL",
+    "OpenAlex URL",
+  ];
+
+  const rows = publications.map(
+    (publication) => [
+      stripHtml(publication.title),
+      publication.authors,
+      publication.journal,
+      publication.year || "",
+      publication.publicationDate || "",
+      publication.type,
+      publication.citations,
+      normaliseDoi(publication.doi),
+      publication.isOpenAccess
+        ? "Yes"
+        : "No",
+      publication.fullTextUrl || "",
+      publication.sourceUrl,
+      publication.openAlexUrl,
+    ]
+  );
+
+  return [
+    headers.map(escapeCsv).join(","),
+    ...rows.map((row) =>
+      row.map(escapeCsv).join(",")
+    ),
+  ].join("\r\n");
+}
+
+function buildBibTeX(
+  publications: Publication[]
+) {
+  return publications
+    .map((publication, index) => {
+      const key = createCitationKey(
+        publication,
+        index
+      );
+
+      const authors = splitAuthors(
+        publication.authors
+      )
+        .map(escapeBibTeX)
+        .join(" and ");
+
+      const fields: string[] = [
+        `  title = {${escapeBibTeX(
+          publication.title
+        )}}`,
+      ];
+
+      if (authors) {
+        fields.push(
+          `  author = {${authors}}`
+        );
+      }
+
+      if (
+        publication.journal &&
+        publication.journal !==
+          "Source not available"
+      ) {
+        fields.push(
+          `  journal = {${escapeBibTeX(
+            publication.journal
+          )}}`
+        );
+      }
+
+      if (publication.year) {
+        fields.push(
+          `  year = {${publication.year}}`
+        );
+      }
+
+      const doi = normaliseDoi(
+        publication.doi
+      );
+
+      if (doi) {
+        fields.push(
+          `  doi = {${escapeBibTeX(doi)}}`
+        );
+      }
+
+      if (publication.sourceUrl) {
+        fields.push(
+          `  url = {${escapeBibTeX(
+            publication.sourceUrl
+          )}}`
+        );
+      }
+
+      fields.push(
+        `  note = {Citations: ${publication.citations}}`
+      );
+
+      return `@${bibTeXEntryType(
+        publication.type
+      )}{${key},\n${fields.join(
+        ",\n"
+      )}\n}`;
+    })
+    .join("\n\n");
+}
+
+function buildRis(
+  publications: Publication[]
+) {
+  return publications
+    .map((publication) => {
+      const lines: string[] = [
+        `TY  - ${risEntryType(
+          publication.type
+        )}`,
+        `TI  - ${stripHtml(
+          publication.title
+        )}`,
+      ];
+
+      splitAuthors(
+        publication.authors
+      ).forEach((author) => {
+        lines.push(`AU  - ${author}`);
+      });
+
+      if (
+        publication.journal &&
+        publication.journal !==
+          "Source not available"
+      ) {
+        lines.push(
+          `JO  - ${publication.journal}`
+        );
+      }
+
+      if (publication.year) {
+        lines.push(
+          `PY  - ${publication.year}`
+        );
+      }
+
+      if (publication.publicationDate) {
+        lines.push(
+          `DA  - ${publication.publicationDate}`
+        );
+      }
+
+      const doi = normaliseDoi(
+        publication.doi
+      );
+
+      if (doi) {
+        lines.push(`DO  - ${doi}`);
+      }
+
+      if (publication.sourceUrl) {
+        lines.push(
+          `UR  - ${publication.sourceUrl}`
+        );
+      }
+
+      lines.push(
+        `N1  - Citations: ${publication.citations}`
+      );
+
+      lines.push("ER  -");
+
+      return lines.join("\r\n");
+    })
+    .join("\r\n\r\n");
+}
+
+function buildTextList(
+  publications: Publication[],
+  researcherName: string
+) {
+  const heading = [
+    `${researcherName} — Publication List`,
+    `Total publications exported: ${publications.length}`,
+    `Generated: ${new Date().toLocaleString(
+      "en-IN"
+    )}`,
+    "",
+  ];
+
+  const entries = publications.map(
+    (publication, index) => {
+      const doi = normaliseDoi(
+        publication.doi
+      );
+
+      return [
+        `${index + 1}. ${stripHtml(
+          publication.title
+        )}`,
+        `   Authors: ${publication.authors}`,
+        `   Source: ${publication.journal}`,
+        `   Year: ${
+          publication.year || "Not available"
+        }`,
+        `   Citations: ${publication.citations}`,
+        doi ? `   DOI: ${doi}` : "",
+        `   URL: ${publication.sourceUrl}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+  );
+
+  return [...heading, ...entries].join(
+    "\n\n"
+  );
+}
+
+function downloadTextFile(
+  content: string,
+  filename: string,
+  mimeType: string
+) {
+  const blob = new Blob([content], {
+    type: `${mimeType};charset=utf-8`,
+  });
+
+  const url = URL.createObjectURL(blob);
+
+  const anchor =
+    document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = filename;
+
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+
+  URL.revokeObjectURL(url);
 }
 
 function formatDate(value: string | null) {
@@ -221,6 +640,12 @@ export default function ResearcherPage() {
   const [shareMessage, setShareMessage] =
     useState("");
 
+  const [exportFormat, setExportFormat] =
+  useState<ExportFormat>("csv");
+
+const [exportMessage, setExportMessage] =
+  useState("");  
+
   useEffect(() => {
     async function loadResearcher() {
       setLoading(true);
@@ -268,11 +693,6 @@ export default function ResearcherPage() {
       loadResearcher();
     }
   }, [researcherId]);
-
-  useEffect(() => {
-    setPublicationQuery("");
-    setPublicationSort("tab-order");
-  }, [activeTab]);
 
   async function copyProfileLink() {
     try {
@@ -322,20 +742,152 @@ export default function ResearcherPage() {
     }
   }
 
+function exportPublications(
+  scope: ExportScope
+) {
+  if (!data) {
+    return;
+  }
+
+  const completeSortedList = [
+    ...data.publications,
+  ].sort(
+    activeTab === "latest"
+      ? (a, b) => {
+          const dateA =
+            a.publicationDate ||
+            `${a.year || 0}`;
+
+          const dateB =
+            b.publicationDate ||
+            `${b.year || 0}`;
+
+          return dateB.localeCompare(
+            dateA
+          );
+        }
+      : (a, b) =>
+          b.citations - a.citations
+  );
+
+  const publicationsToExport =
+    scope === "current"
+      ? visiblePublications
+      : completeSortedList;
+
+  if (publicationsToExport.length === 0) {
+    setExportMessage(
+      "There are no publications to export."
+    );
+
+    window.setTimeout(() => {
+      setExportMessage("");
+    }, 2500);
+
+    return;
+  }
+
+  const baseFilename =
+    safeFilename(
+      `${data.profile.name}-publications`
+    ) || "researcher-publications";
+
+  let content = "";
+  let extension = "";
+  let mimeType = "text/plain";
+
+  switch (exportFormat) {
+    case "csv":
+      content = buildCsv(
+        publicationsToExport
+      );
+      extension = "csv";
+      mimeType = "text/csv";
+      break;
+
+    case "bibtex":
+      content = buildBibTeX(
+        publicationsToExport
+      );
+      extension = "bib";
+      mimeType =
+        "application/x-bibtex";
+      break;
+
+    case "ris":
+      content = buildRis(
+        publicationsToExport
+      );
+      extension = "ris";
+      mimeType =
+        "application/x-research-info-systems";
+      break;
+
+    case "json":
+      content = JSON.stringify(
+        {
+          researcher: {
+            id: data.profile.id,
+            name: data.profile.name,
+            affiliation:
+              data.profile.affiliation,
+            orcid: data.profile.orcid,
+            openAlexUrl:
+              data.profile.openAlexUrl,
+          },
+          exportedAt:
+            new Date().toISOString(),
+          publicationCount:
+            publicationsToExport.length,
+          publications:
+            publicationsToExport,
+        },
+        null,
+        2
+      );
+      extension = "json";
+      mimeType = "application/json";
+      break;
+
+    case "text":
+      content = buildTextList(
+        publicationsToExport,
+        data.profile.name
+      );
+      extension = "txt";
+      mimeType = "text/plain";
+      break;
+  }
+
+  const scopeSuffix =
+    scope === "current"
+      ? "-current-results"
+      : "-all";
+
+  downloadTextFile(
+    content,
+    `${baseFilename}${scopeSuffix}.${extension}`,
+    mimeType
+  );
+
+  setExportMessage(
+    `${publicationsToExport.length} publications exported as ${exportFormat.toUpperCase()}.`
+  );
+
+  window.setTimeout(() => {
+    setExportMessage("");
+  }, 3000);
+}
+
   const visiblePublications = useMemo(() => {
     if (!data) {
       return [];
     }
 
-    const sourcePublications =
-      activeTab === "latest"
-        ? data.latestPublications
-        : data.mostCitedPublications;
-
     const cleanQuery =
       publicationQuery.trim().toLowerCase();
 
-    const filtered = sourcePublications.filter(
+    const filtered = data.publications.filter(
       (publication) => {
         if (!cleanQuery) {
           return true;
@@ -363,22 +915,26 @@ export default function ResearcherPage() {
     switch (publicationSort) {
       case "newest":
         return sorted.sort(
-          (a, b) => (b.year || 0) - (a.year || 0)
+          (a, b) =>
+            (b.year || 0) - (a.year || 0)
         );
 
       case "oldest":
         return sorted.sort(
-          (a, b) => (a.year || 0) - (b.year || 0)
+          (a, b) =>
+            (a.year || 0) - (b.year || 0)
         );
 
       case "most-cited":
         return sorted.sort(
-          (a, b) => b.citations - a.citations
+          (a, b) =>
+            b.citations - a.citations
         );
 
       case "least-cited":
         return sorted.sort(
-          (a, b) => a.citations - b.citations
+          (a, b) =>
+            a.citations - b.citations
         );
 
       case "title":
@@ -387,7 +943,24 @@ export default function ResearcherPage() {
         );
 
       default:
-        return sorted;
+        return sorted.sort(
+          activeTab === "latest"
+            ? (a, b) => {
+                const dateA =
+                  a.publicationDate ||
+                  `${a.year || 0}`;
+
+                const dateB =
+                  b.publicationDate ||
+                  `${b.year || 0}`;
+
+                return dateB.localeCompare(
+                  dateA
+                );
+              }
+            : (a, b) =>
+                b.citations - a.citations
+        );
     }
   }, [
     activeTab,
@@ -403,7 +976,7 @@ export default function ResearcherPage() {
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-700" />
 
           <p className="mt-5 font-semibold text-slate-500">
-            Loading researcher profile...
+            Loading complete researcher profile...
           </p>
         </div>
       </main>
@@ -436,8 +1009,8 @@ export default function ResearcherPage() {
 
   const {
     profile,
-    latestPublications,
-    mostCitedPublications,
+    publications,
+    publicationMeta,
   } = data;
 
   const initials = profile.name
@@ -453,9 +1026,7 @@ export default function ResearcherPage() {
   );
 
   const displayedPublicationCount =
-    activeTab === "latest"
-      ? latestPublications.length
-      : mostCitedPublications.length;
+    publications.length;
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
@@ -594,6 +1165,12 @@ export default function ResearcherPage() {
         </div>
       )}
 
+      {exportMessage && (
+  <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border border-indigo-200 bg-white px-6 py-4 text-sm font-bold text-indigo-700 shadow-xl print:hidden">
+    {exportMessage}
+  </div>
+)}
+
       {profile.topics.length > 0 && (
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -667,9 +1244,8 @@ export default function ResearcherPage() {
             </h2>
 
             <p className="mt-2 text-sm text-slate-500">
-              Browse the researcher&apos;s latest and
-              most-cited publications indexed by
-              OpenAlex.
+              Browse the researcher&apos;s complete
+              OpenAlex publication record.
             </p>
           </div>
 
@@ -755,11 +1331,104 @@ export default function ResearcherPage() {
           </div>
         </div>
 
+        <div className="mt-4 rounded-3xl border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-5 shadow-sm print:hidden">
+  <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+        Publication Export
+      </p>
+
+      <h3 className="mt-2 text-xl font-black text-slate-950">
+        Download publication records
+      </h3>
+
+      <p className="mt-2 text-sm leading-6 text-slate-600">
+        Export the complete profile or only the
+        publications matching the current search.
+      </p>
+    </div>
+
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div>
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Export format
+        </label>
+
+        <select
+          value={exportFormat}
+          onChange={(event) =>
+            setExportFormat(
+              event.target
+                .value as ExportFormat
+            )
+          }
+          className="mt-2 w-full min-w-48 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+        >
+          <option value="csv">
+            CSV — Excel and reporting
+          </option>
+
+          <option value="bibtex">
+            BibTeX — LaTeX and Zotero
+          </option>
+
+          <option value="ris">
+            RIS — EndNote and Mendeley
+          </option>
+
+          <option value="json">
+            JSON — Data backup
+          </option>
+
+          <option value="text">
+            Plain Text — Publication list
+          </option>
+        </select>
+      </div>
+
+      <button
+        type="button"
+        onClick={() =>
+          exportPublications("all")
+        }
+        className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+      >
+        Export All (
+        {data.publications.length})
+      </button>
+
+      <button
+        type="button"
+        onClick={() =>
+          exportPublications("current")
+        }
+        className="rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+      >
+        Export Current (
+        {visiblePublications.length})
+      </button>
+    </div>
+  </div>
+</div>
+
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-slate-600">
-            Showing {visiblePublications.length} of{" "}
-            {displayedPublicationCount} loaded publications
-          </p>
+          <div>
+            <p className="text-sm font-semibold text-slate-700">
+              Showing{" "}
+              {visiblePublications.length.toLocaleString()}{" "}
+              of{" "}
+              {displayedPublicationCount.toLocaleString()}{" "}
+              publications
+            </p>
+
+            <p className="mt-1 text-xs text-slate-500">
+              OpenAlex profile count:{" "}
+              {publicationMeta.profileWorksCount.toLocaleString()}
+              {" · "}
+              API records found:{" "}
+              {publicationMeta.apiWorksCount.toLocaleString()}
+            </p>
+          </div>
 
           {publicationQuery && (
             <button
@@ -773,6 +1442,16 @@ export default function ResearcherPage() {
             </button>
           )}
         </div>
+
+        {!publicationMeta.complete && (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
+            This researcher has an exceptionally
+            large publication record. OpenScholar
+            loaded{" "}
+            {publicationMeta.loadedCount.toLocaleString()}{" "}
+            publications in this session.
+          </div>
+        )}
 
         {visiblePublications.length === 0 ? (
           <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-8">
@@ -824,6 +1503,17 @@ export default function ResearcherPage() {
           metrics may differ from Google Scholar,
           Crossref, ORCID and other scholarly
           databases.
+        </p>
+
+        <p className="mt-2">
+          OpenScholar loaded{" "}
+          {publicationMeta.loadedCount.toLocaleString()}{" "}
+          publication records through{" "}
+          {publicationMeta.requestsUsed.toLocaleString()}{" "}
+          OpenAlex API request
+          {publicationMeta.requestsUsed === 1
+            ? ""
+            : "s"}.
         </p>
 
         {profile.updatedDate && (

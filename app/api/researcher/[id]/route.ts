@@ -37,8 +37,6 @@ type OpenAlexAuthor = {
   }[] | null;
 
   topics?: OpenAlexTopic[] | null;
-
-  works_api_url?: string | null;
   updated_date?: string | null;
 };
 
@@ -84,13 +82,53 @@ type OpenAlexWork = {
   } | null;
 };
 
+type OpenAlexWorksResponse = {
+  meta?: {
+    count?: number | null;
+    next_cursor?: string | null;
+  } | null;
+
+  results?: OpenAlexWork[] | null;
+};
+
+type FormattedPublication = {
+  id: string;
+  openAlexUrl: string;
+  title: string;
+  type: string;
+  year: number | null;
+  publicationDate: string | null;
+  doi: string | null;
+  citations: number;
+  journal: string;
+  authors: string;
+  biblio: string;
+  isOpenAccess: boolean;
+  fullTextUrl: string | null;
+  sourceUrl: string;
+};
+
 function cleanOpenAlexId(value: string) {
   return value.substring(
     value.lastIndexOf("/") + 1
   );
 }
 
-function formatWork(work: OpenAlexWork) {
+function normalizeDoi(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  return value
+    .toLowerCase()
+    .replace("https://doi.org/", "")
+    .replace("http://doi.org/", "")
+    .trim();
+}
+
+function formatWork(
+  work: OpenAlexWork
+): FormattedPublication {
   const authorNames =
     work.authorships
       ?.map(
@@ -139,6 +177,7 @@ function formatWork(work: OpenAlexWork) {
 
   return {
     id: cleanOpenAlexId(work.id),
+
     openAlexUrl: work.id,
 
     title:
@@ -147,7 +186,8 @@ function formatWork(work: OpenAlexWork) {
 
     type: work.type || "article",
 
-    year: work.publication_year || null,
+    year:
+      work.publication_year || null,
 
     publicationDate:
       work.publication_date || null,
@@ -171,7 +211,7 @@ function formatWork(work: OpenAlexWork) {
       "Bibliographic details not available",
 
     isOpenAccess:
-      work.open_access?.is_oa || false,
+      Boolean(work.open_access?.is_oa),
 
     fullTextUrl,
 
@@ -179,56 +219,168 @@ function formatWork(work: OpenAlexWork) {
   };
 }
 
-async function fetchAuthorWorks(
-  authorId: string,
-  apiKey: string,
-  sort: string
+function deduplicatePublications(
+  publications: FormattedPublication[]
 ) {
-  const url = new URL(
-    "https://api.openalex.org/works"
-  );
+  const seenOpenAlexIds = new Set<string>();
+  const seenDois = new Set<string>();
 
-  url.searchParams.set(
-  "filter",
-  `authorships.author.id:${authorId}`
-);
+  return publications.filter(
+    (publication) => {
+      const openAlexId =
+        publication.id.toLowerCase();
 
-  url.searchParams.set("sort", sort);
-  url.searchParams.set("per_page", "10");
-  url.searchParams.set("api_key", apiKey);
+      const doi = normalizeDoi(
+        publication.doi
+      );
 
-  const response = await fetch(url.toString(), {
-    next: {
-      revalidate: 3600,
-    },
-  });
+      if (
+        seenOpenAlexIds.has(openAlexId)
+      ) {
+        return false;
+      }
 
-  if (!response.ok) {
-  const errorText = await response.text();
+      if (doi && seenDois.has(doi)) {
+        return false;
+      }
 
-  console.error(
-    "OpenAlex researcher works request failed:",
-    {
-      status: response.status,
-      response: errorText,
-      requestedUrl: url
-        .toString()
-        .replace(apiKey, "[HIDDEN_API_KEY]"),
+      seenOpenAlexIds.add(openAlexId);
+
+      if (doi) {
+        seenDois.add(doi);
+      }
+
+      return true;
     }
   );
-
-  return [];
 }
 
-  const data = await response.json();
+async function fetchAllAuthorWorks(
+  authorId: string,
+  apiKey: string
+) {
+  const allWorks: OpenAlexWork[] = [];
 
-  return (
-    (data.results || []) as OpenAlexWork[]
-  ).map(formatWork);
+  let cursor = "*";
+  let expectedCount = 0;
+  let requestNumber = 0;
+
+  /*
+   * Safety limit: 100 requests × 100 records =
+   * up to 10,000 works per researcher.
+   */
+  const maximumRequests = 100;
+
+  while (
+    cursor &&
+    requestNumber < maximumRequests
+  ) {
+    requestNumber += 1;
+
+    const url = new URL(
+      "https://api.openalex.org/works"
+    );
+
+    url.searchParams.set(
+      "filter",
+      `authorships.author.id:${authorId}`
+    );
+
+    url.searchParams.set(
+      "sort",
+      "publication_date:desc"
+    );
+
+    url.searchParams.set(
+      "per_page",
+      "100"
+    );
+
+    url.searchParams.set(
+      "cursor",
+      cursor
+    );
+
+    url.searchParams.set(
+      "api_key",
+      apiKey
+    );
+
+    const response = await fetch(
+      url.toString(),
+      {
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      const errorText =
+        await response.text();
+
+      console.error(
+        "OpenAlex complete works request failed:",
+        {
+          status: response.status,
+          response: errorText,
+          requestedUrl: url
+            .toString()
+            .replace(
+              apiKey,
+              "[HIDDEN_API_KEY]"
+            ),
+        }
+      );
+
+      throw new Error(
+        "Unable to load the complete publication list."
+      );
+    }
+
+    const data =
+      (await response.json()) as
+        OpenAlexWorksResponse;
+
+    if (requestNumber === 1) {
+      expectedCount =
+        data.meta?.count || 0;
+    }
+
+    const currentWorks =
+      data.results || [];
+
+    allWorks.push(...currentWorks);
+
+    const nextCursor =
+      data.meta?.next_cursor || null;
+
+    if (
+      currentWorks.length === 0 ||
+      !nextCursor
+    ) {
+      break;
+    }
+
+    cursor = nextCursor;
+  }
+
+  const publications =
+    deduplicatePublications(
+      allWorks.map(formatWork)
+    );
+
+  return {
+    publications,
+    expectedCount,
+    requestsUsed: requestNumber,
+    wasLimited:
+      requestNumber >= maximumRequests &&
+      publications.length <
+        expectedCount,
+  };
 }
 
 export async function GET(
-  request: Request,
+  _request: Request,
   context: {
     params: Promise<{
       id: string;
@@ -281,26 +433,16 @@ export async function GET(
 
     const [
       authorResponse,
-      latestPublications,
-      mostCitedPublications,
+      publicationResult,
     ] = await Promise.all([
       fetch(authorUrl.toString(), {
-        next: {
-          revalidate: 3600,
-        },
+        cache: "no-store",
       }),
 
-      fetchAuthorWorks(
-  cleanId,
-  apiKey,
-  "publication_date:desc"
-),
-
-fetchAuthorWorks(
-  cleanId,
-  apiKey,
-  "cited_by_count:desc"
-),
+      fetchAllAuthorWorks(
+        cleanId,
+        apiKey
+      ),
     ]);
 
     if (!authorResponse.ok) {
@@ -316,13 +458,15 @@ fetchAuthorWorks(
       return NextResponse.json(
         {
           error:
-            authorResponse.status === 404
+            authorResponse.status ===
+            404
               ? "Researcher profile was not found."
               : "Unable to load researcher profile.",
         },
         {
           status:
-            authorResponse.status === 404
+            authorResponse.status ===
+            404
               ? 404
               : 502,
         }
@@ -330,7 +474,8 @@ fetchAuthorWorks(
     }
 
     const author =
-      (await authorResponse.json()) as OpenAlexAuthor;
+      (await authorResponse.json()) as
+        OpenAlexAuthor;
 
     const institutions =
       author.last_known_institutions
@@ -422,7 +567,8 @@ fetchAuthorWorks(
 
       orcid: author.orcid || null,
 
-      verified: Boolean(author.orcid),
+      verified:
+        Boolean(author.orcid),
 
       worksCount:
         author.works_count || 0,
@@ -458,8 +604,27 @@ fetchAuthorWorks(
 
     return NextResponse.json({
       profile,
-      latestPublications,
-      mostCitedPublications,
+
+      publications:
+        publicationResult.publications,
+
+      publicationMeta: {
+        profileWorksCount:
+          author.works_count || 0,
+
+        apiWorksCount:
+          publicationResult.expectedCount,
+
+        loadedCount:
+          publicationResult.publications
+            .length,
+
+        requestsUsed:
+          publicationResult.requestsUsed,
+
+        complete:
+          !publicationResult.wasLimited,
+      },
     });
   } catch (error) {
     console.error(
@@ -470,7 +635,9 @@ fetchAuthorWorks(
     return NextResponse.json(
       {
         error:
-          "An unexpected error occurred while loading the researcher profile.",
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred while loading the researcher profile.",
       },
       {
         status: 500,
