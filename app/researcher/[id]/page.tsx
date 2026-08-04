@@ -8,6 +8,8 @@ import {
 } from "react";
 import { useParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
+import { supabase } from "@/lib/supabaseClient";
+import type { User } from "@supabase/supabase-js";
 
 type Institution = {
   id: string;
@@ -84,8 +86,86 @@ type PublicationSort =
 
 type ExportScope = "all" | "current";
 
+type ClaimStatus =
+  | "pending"
+  | "verified"
+  | "rejected";
+
+type VerificationMethod =
+  | "signed_in_email"
+  | "institutional_email"
+  | "orcid"
+  | "administrator";
+
+type ResearcherClaim = {
+  id: string;
+  user_id: string;
+  openalex_author_id: string;
+  researcher_name: string;
+  affiliation: string | null;
+  orcid: string | null;
+  claim_status: ClaimStatus;
+  verification_method:
+    | VerificationMethod
+    | null;
+  verification_note: string | null;
+  claimed_at: string;
+  verified_at: string | null;
+  updated_at: string;
+};
+
+type PublicationExclusion = {
+  id: string;
+  user_id: string;
+  openalex_author_id: string;
+  openalex_work_id: string;
+  publication_title: string | null;
+  reason:
+    | "different_author"
+    | "incorrect_assignment"
+    | "duplicate"
+    | "not_my_publication"
+    | "other"
+    | null;
+  reason_note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type PublicExclusion = {
+  openalex_work_id: string;
+};
+
+type YearAnalytics = {
+  year: number;
+  publications: number;
+  citations: number;
+};
+
+type CountAnalytics = {
+  label: string;
+  count: number;
+};
+
+type CollaboratorAnalytics = {
+  name: string;
+  publications: number;
+};
+
 function normalizeText(value: string) {
   return value.toLowerCase().trim();
+}
+
+function formatPublicationType(type: string) {
+  const normalized = type
+    .replaceAll("-", " ")
+    .replaceAll("_", " ")
+    .trim();
+
+  return normalized.replace(
+    /\b\w/g,
+    (character) => character.toUpperCase()
+  );
 }
 
 function stripHtml(value: string) {
@@ -527,10 +607,66 @@ function uniqueInstitutions(
   });
 }
 
+function AnalyticsBar({
+  label,
+  value,
+  maximum,
+  detail,
+}: {
+  label: string;
+  value: number;
+  maximum: number;
+  detail?: string;
+}) {
+  const percentage =
+    maximum > 0
+      ? Math.max(
+          3,
+          Math.round((value / maximum) * 100)
+        )
+      : 0;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-4 text-sm">
+        <span className="min-w-0 truncate font-semibold text-slate-700">
+          {label}
+        </span>
+
+        <span className="shrink-0 font-black text-slate-950">
+          {value.toLocaleString()}
+          {detail ? (
+            <span className="ml-1 font-medium text-slate-400">
+              {detail}
+            </span>
+          ) : null}
+        </span>
+      </div>
+
+      <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-indigo-600 to-violet-500"
+          style={{
+            width: `${percentage}%`,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function PublicationCard({
   publication,
+  canCurate = false,
+  curationBusy = false,
+  onExclude,
 }: {
   publication: Publication;
+  canCurate?: boolean;
+  curationBusy?: boolean;
+  onExclude?: (
+    publication: Publication
+  ) => void;
 }) {
   return (
     <article className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-indigo-300 hover:shadow-lg">
@@ -557,8 +693,8 @@ function PublicationCard({
       </div>
 
       <h3 className="mt-4 text-xl font-black leading-8 text-slate-950">
-        {publication.title}
-      </h3>
+  {stripHtml(publication.title)}
+</h3>
 
       <p className="mt-3 text-sm leading-6 text-slate-500">
         {publication.authors}
@@ -611,14 +747,28 @@ function PublicationCard({
         )}
 
         <a
-          href={publication.openAlexUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-        >
-          OpenAlex
-        </a>
-      </div>
+  href={publication.openAlexUrl}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+>
+  OpenAlex
+</a>
+
+{canCurate && onExclude && (
+  <button
+    type="button"
+    onClick={() => onExclude(publication)}
+    disabled={curationBusy}
+    className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-bold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {curationBusy
+      ? "Hiding..."
+      : "Hide from Profile"}
+  </button>
+)}
+
+</div>
     </article>
   );
 }
@@ -654,6 +804,71 @@ const [showQrDialog, setShowQrDialog] =
 
 const [exportMessage, setExportMessage] =
   useState("");  
+
+const [user, setUser] =
+  useState<User | null>(null);
+
+const [claim, setClaim] =
+  useState<ResearcherClaim | null>(null);
+
+const [claimLoading, setClaimLoading] =
+  useState(true);
+
+const [showClaimDialog, setShowClaimDialog] =
+  useState(false);
+
+const [
+  verificationMethod,
+  setVerificationMethod,
+] = useState<VerificationMethod>(
+  "signed_in_email"
+);
+
+const [verificationNote, setVerificationNote] =
+  useState("");
+
+const [claimSubmitting, setClaimSubmitting] =
+  useState(false);
+
+const [claimMessage, setClaimMessage] =
+  useState("");
+
+  const [excludedWorkIds, setExcludedWorkIds] =
+  useState<Set<string>>(new Set());
+
+const [ownerExclusions, setOwnerExclusions] =
+  useState<PublicationExclusion[]>([]);
+
+const [exclusionsLoading, setExclusionsLoading] =
+  useState(true);
+
+const [exclusionBusyId, setExclusionBusyId] =
+  useState<string | null>(null);
+
+const [
+  showHiddenPublications,
+  setShowHiddenPublications,
+] = useState(false);
+
+const [
+  publicationToExclude,
+  setPublicationToExclude,
+] = useState<Publication | null>(null);
+
+const [exclusionReason, setExclusionReason] =
+  useState<
+    | "different_author"
+    | "incorrect_assignment"
+    | "duplicate"
+    | "not_my_publication"
+    | "other"
+  >("not_my_publication");
+
+const [exclusionNote, setExclusionNote] =
+  useState("");
+
+const [curationMessage, setCurationMessage] =
+  useState("");
 
   useEffect(() => {
     async function loadResearcher() {
@@ -702,6 +917,219 @@ const [exportMessage, setExportMessage] =
       loadResearcher();
     }
   }, [researcherId]);
+
+  useEffect(() => {
+  let mounted = true;
+
+  async function loadAuthenticatedUser() {
+    const { data, error: authError } =
+      await supabase.auth.getUser();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (authError) {
+      console.error(
+        "Unable to load authenticated user:",
+        authError
+      );
+
+      setUser(null);
+      return;
+    }
+
+    setUser(data.user);
+  }
+
+  loadAuthenticatedUser();
+
+  const { data: authListener } =
+    supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!mounted) {
+          return;
+        }
+
+        setUser(session?.user ?? null);
+      }
+    );
+
+  return () => {
+    mounted = false;
+    authListener.subscription.unsubscribe();
+  };
+}, []);
+
+useEffect(() => {
+  let mounted = true;
+
+  async function loadClaim() {
+    if (!user || !researcherId) {
+      if (mounted) {
+        setClaim(null);
+        setClaimLoading(false);
+      }
+
+      return;
+    }
+
+    setClaimLoading(true);
+
+    const { data: claimData, error: claimError } =
+      await supabase
+        .from("researcher_profile_claims")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq(
+          "openalex_author_id",
+          researcherId.toUpperCase()
+        )
+        .maybeSingle();
+
+    if (!mounted) {
+      return;
+    }
+
+    if (claimError) {
+      console.error(
+        "Unable to load researcher claim:",
+        claimError
+      );
+
+      setClaim(null);
+      setClaimLoading(false);
+      return;
+    }
+
+    setClaim(
+      (claimData as ResearcherClaim | null) ||
+        null
+    );
+
+    setClaimLoading(false);
+  }
+
+  loadClaim();
+
+  return () => {
+    mounted = false;
+  };
+}, [researcherId, user]);
+
+useEffect(() => {
+  let mounted = true;
+
+  async function loadPublicExclusions() {
+    if (!researcherId) {
+      return;
+    }
+
+    setExclusionsLoading(true);
+
+    const {
+      data: exclusionData,
+      error: exclusionError,
+    } = await supabase.rpc(
+      "get_researcher_publication_exclusions",
+      {
+        p_openalex_author_id:
+          researcherId.toUpperCase(),
+      }
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (exclusionError) {
+      console.error(
+        "Unable to load publication exclusions:",
+        exclusionError
+      );
+
+      setExcludedWorkIds(new Set());
+      setExclusionsLoading(false);
+      return;
+    }
+
+    const exclusionIds = new Set(
+      (
+        (exclusionData ?? []) as PublicExclusion[]
+      ).map((item) =>
+        item.openalex_work_id.toUpperCase()
+      )
+    );
+
+    setExcludedWorkIds(exclusionIds);
+    setExclusionsLoading(false);
+  }
+
+  loadPublicExclusions();
+
+  return () => {
+    mounted = false;
+  };
+}, [researcherId]);
+
+useEffect(() => {
+  let mounted = true;
+
+  async function loadOwnerExclusions() {
+    if (
+      !user ||
+      !claim ||
+      claim.claim_status !== "verified"
+    ) {
+      if (mounted) {
+        setOwnerExclusions([]);
+      }
+      return;
+    }
+
+    const {
+      data: ownerExclusionData,
+      error: ownerExclusionError,
+    } = await supabase
+      .from(
+        "researcher_publication_exclusions"
+      )
+      .select("*")
+      .eq("user_id", user.id)
+      .eq(
+        "openalex_author_id",
+        researcherId.toUpperCase()
+      )
+      .order("created_at", {
+        ascending: false,
+      });
+
+    if (!mounted) {
+      return;
+    }
+
+    if (ownerExclusionError) {
+      console.error(
+        "Unable to load owner exclusions:",
+        ownerExclusionError
+      );
+
+      setOwnerExclusions([]);
+      return;
+    }
+
+    setOwnerExclusions(
+      (ownerExclusionData ??
+        []) as PublicationExclusion[]
+    );
+  }
+
+  loadOwnerExclusions();
+
+  return () => {
+    mounted = false;
+  };
+}, [claim, researcherId, user]);
 
   function getShareableProfileUrl() {
   if (typeof window === "undefined") {
@@ -898,6 +1326,302 @@ function downloadProfileQrCode() {
   }, 2500);
 }
 
+async function submitProfileClaim() {
+  if (!data) {
+    return;
+  }
+
+  if (!user) {
+    window.location.href =
+      `/signin?next=${encodeURIComponent(
+        `/researcher/${researcherId}`
+      )}`;
+
+    return;
+  }
+
+  setClaimSubmitting(true);
+  setClaimMessage("");
+
+  try {
+    const claimPayload = {
+      user_id: user.id,
+      openalex_author_id:
+        data.profile.id.toUpperCase(),
+      researcher_name:
+        data.profile.name,
+      affiliation:
+        data.profile.affiliation || null,
+      orcid:
+        data.profile.orcid || null,
+      claim_status: "pending" as const,
+      verification_method:
+        verificationMethod,
+      verification_note:
+        verificationNote.trim() || null,
+    };
+
+    const { data: insertedClaim, error } =
+      await supabase
+        .from("researcher_profile_claims")
+        .insert(claimPayload)
+        .select("*")
+        .single();
+
+    if (error) {
+      throw error;
+    }
+
+    setClaim(
+      insertedClaim as ResearcherClaim
+    );
+
+    setShowClaimDialog(false);
+    setVerificationNote("");
+
+    setClaimMessage(
+      "Profile claim submitted successfully."
+    );
+  } catch (claimError) {
+    console.error(
+      "Profile claim submission failed:",
+      claimError
+    );
+
+    const errorMessage =
+      claimError &&
+      typeof claimError === "object" &&
+      "message" in claimError
+        ? String(claimError.message)
+        : "Unable to submit the profile claim.";
+
+    setClaimMessage(errorMessage);
+  } finally {
+    setClaimSubmitting(false);
+
+    window.setTimeout(() => {
+      setClaimMessage("");
+    }, 4000);
+  }
+}
+
+async function withdrawProfileClaim() {
+  if (!claim || claim.claim_status !== "pending") {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Withdraw this pending profile claim?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setClaimSubmitting(true);
+  setClaimMessage("");
+
+  try {
+    const { error } = await supabase
+      .from("researcher_profile_claims")
+      .delete()
+      .eq("id", claim.id);
+
+    if (error) {
+      throw error;
+    }
+
+    setClaim(null);
+
+    setClaimMessage(
+      "Profile claim withdrawn."
+    );
+  } catch (claimError) {
+    console.error(
+      "Unable to withdraw profile claim:",
+      claimError
+    );
+
+    setClaimMessage(
+      "Unable to withdraw the profile claim."
+    );
+  } finally {
+    setClaimSubmitting(false);
+
+    window.setTimeout(() => {
+      setClaimMessage("");
+    }, 3500);
+  }
+}
+
+async function excludePublication() {
+  if (
+    !user ||
+    !claim ||
+    claim.claim_status !== "verified" ||
+    !publicationToExclude
+  ) {
+    return;
+  }
+
+  setExclusionBusyId(
+    publicationToExclude.id
+  );
+
+  setCurationMessage("");
+
+  try {
+    const payload = {
+      user_id: user.id,
+      openalex_author_id:
+        researcherId.toUpperCase(),
+      openalex_work_id:
+        publicationToExclude.id.toUpperCase(),
+      publication_title:
+        stripHtml(
+          publicationToExclude.title
+        ),
+      reason: exclusionReason,
+      reason_note:
+        exclusionNote.trim() || null,
+    };
+
+    const {
+      data: insertedExclusion,
+      error: exclusionError,
+    } = await supabase
+      .from(
+        "researcher_publication_exclusions"
+      )
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (exclusionError) {
+      throw exclusionError;
+    }
+
+    const exclusion =
+      insertedExclusion as PublicationExclusion;
+
+    setOwnerExclusions((current) => [
+      exclusion,
+      ...current,
+    ]);
+
+    setExcludedWorkIds((current) => {
+      const next = new Set(current);
+
+      next.add(
+        exclusion.openalex_work_id.toUpperCase()
+      );
+
+      return next;
+    });
+
+    setPublicationToExclude(null);
+    setExclusionReason(
+      "not_my_publication"
+    );
+    setExclusionNote("");
+
+    setCurationMessage(
+      "Publication hidden from the profile."
+    );
+  } catch (exclusionError) {
+    console.error(
+      "Unable to exclude publication:",
+      exclusionError
+    );
+
+    setCurationMessage(
+      "Unable to hide this publication."
+    );
+  } finally {
+    setExclusionBusyId(null);
+
+    window.setTimeout(() => {
+      setCurationMessage("");
+    }, 3500);
+  }
+}
+
+async function restorePublication(
+  exclusion: PublicationExclusion
+) {
+  if (
+    !user ||
+    !claim ||
+    claim.claim_status !== "verified"
+  ) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Restore this publication to the public profile?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setExclusionBusyId(
+    exclusion.openalex_work_id
+  );
+
+  setCurationMessage("");
+
+  try {
+    const { error: restoreError } =
+      await supabase
+        .from(
+          "researcher_publication_exclusions"
+        )
+        .delete()
+        .eq("id", exclusion.id);
+
+    if (restoreError) {
+      throw restoreError;
+    }
+
+    setOwnerExclusions((current) =>
+      current.filter(
+        (item) =>
+          item.id !== exclusion.id
+      )
+    );
+
+    setExcludedWorkIds((current) => {
+      const next = new Set(current);
+
+      next.delete(
+        exclusion.openalex_work_id.toUpperCase()
+      );
+
+      return next;
+    });
+
+    setCurationMessage(
+      "Publication restored to the profile."
+    );
+  } catch (restoreError) {
+    console.error(
+      "Unable to restore publication:",
+      restoreError
+    );
+
+    setCurationMessage(
+      "Unable to restore this publication."
+    );
+  } finally {
+    setExclusionBusyId(null);
+
+    window.setTimeout(() => {
+      setCurationMessage("");
+    }, 3500);
+  }
+}
+
 function exportPublications(
   scope: ExportScope
 ) {
@@ -906,8 +1630,8 @@ function exportPublications(
   }
 
   const completeSortedList = [
-    ...data.publications,
-  ].sort(
+  ...curatedPublications,
+].sort(
     activeTab === "latest"
       ? (a, b) => {
           const dateA =
@@ -1035,6 +1759,19 @@ function exportPublications(
   }, 3000);
 }
 
+const curatedPublications = useMemo(() => {
+  if (!data) {
+    return [];
+  }
+
+  return data.publications.filter(
+    (publication) =>
+      !excludedWorkIds.has(
+        publication.id.toUpperCase()
+      )
+  );
+}, [data, excludedWorkIds]);
+
   const visiblePublications = useMemo(() => {
     if (!data) {
       return [];
@@ -1043,7 +1780,7 @@ function exportPublications(
     const cleanQuery =
       publicationQuery.trim().toLowerCase();
 
-    const filtered = data.publications.filter(
+    const filtered = curatedPublications.filter(
       (publication) => {
         if (!cleanQuery) {
           return true;
@@ -1119,11 +1856,270 @@ function exportPublications(
         );
     }
   }, [
-    activeTab,
-    data,
-    publicationQuery,
-    publicationSort,
-  ]);
+  activeTab,
+  curatedPublications,
+  publicationQuery,
+  publicationSort,
+]);
+
+const analytics = useMemo(() => {
+  const emptyAnalytics = {
+    firstPublicationYear: null as number | null,
+    latestPublicationYear: null as number | null,
+    activeYears: 0,
+    byYear: [] as YearAnalytics[],
+    publicationTypes: [] as CountAnalytics[],
+    topJournals: [] as CountAnalytics[],
+    topCollaborators:
+      [] as CollaboratorAnalytics[],
+    topCitedPublications: [] as Publication[],
+    openAccessCount: 0,
+    closedAccessCount: 0,
+    openAccessRate: 0,
+    highestCitedPaper: null as Publication | null,
+  };
+
+  if (!data) {
+    return emptyAnalytics;
+  }
+
+  const profileName = data.profile.name;
+  const allPublications =
+  curatedPublications;
+
+  const researcherNameVariants = new Set(
+  [
+    profileName,
+    ...data.profile.alternativeNames,
+  ].map((name) => normalizeText(name))
+);
+
+  const validYears = allPublications
+    .map((publication) => publication.year)
+    .filter(
+      (year): year is number =>
+        typeof year === "number" &&
+        Number.isFinite(year)
+    );
+
+  const firstPublicationYear =
+    validYears.length > 0
+      ? Math.min(...validYears)
+      : null;
+
+  const latestPublicationYear =
+    validYears.length > 0
+      ? Math.max(...validYears)
+      : null;
+
+  const activeYears =
+    firstPublicationYear !== null &&
+    latestPublicationYear !== null
+      ? latestPublicationYear -
+        firstPublicationYear +
+        1
+      : 0;
+
+  const yearMap = new Map<
+    number,
+    {
+      publications: number;
+      citations: number;
+    }
+  >();
+
+  const typeMap = new Map<string, number>();
+  const journalMap = new Map<string, number>();
+  const collaboratorMap =
+    new Map<string, number>();
+
+  let openAccessCount = 0;
+
+  allPublications.forEach((publication) => {
+    if (publication.year) {
+      const currentYearData =
+        yearMap.get(publication.year) || {
+          publications: 0,
+          citations: 0,
+        };
+
+      currentYearData.publications += 1;
+      currentYearData.citations +=
+        publication.citations;
+
+      yearMap.set(
+        publication.year,
+        currentYearData
+      );
+    }
+
+    const publicationType =
+      formatPublicationType(
+        publication.type || "Other"
+      );
+
+    typeMap.set(
+      publicationType,
+      (typeMap.get(publicationType) || 0) + 1
+    );
+
+    if (
+      publication.journal &&
+      publication.journal !==
+        "Source not available"
+    ) {
+      journalMap.set(
+        publication.journal,
+        (journalMap.get(
+          publication.journal
+        ) || 0) + 1
+      );
+    }
+
+    if (publication.isOpenAccess) {
+      openAccessCount += 1;
+    }
+
+    splitAuthors(publication.authors).forEach(
+      (author) => {
+        if (
+  researcherNameVariants.has(
+    normalizeText(author)
+  )
+) {
+  return;
+}
+
+        collaboratorMap.set(
+          author,
+          (collaboratorMap.get(author) ||
+            0) + 1
+        );
+      }
+    );
+  });
+
+  const byYear: YearAnalytics[] =
+    Array.from(yearMap.entries())
+      .map(([year, values]) => ({
+        year,
+        publications:
+          values.publications,
+        citations: values.citations,
+      }))
+      .sort((a, b) => a.year - b.year);
+
+  const publicationTypes: CountAnalytics[] =
+    Array.from(typeMap.entries())
+      .map(([label, count]) => ({
+        label,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+  const topJournals: CountAnalytics[] =
+    Array.from(journalMap.entries())
+      .map(([label, count]) => ({
+        label,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+  const topCollaborators: CollaboratorAnalytics[] =
+    Array.from(
+      collaboratorMap.entries()
+    )
+      .map(([name, publications]) => ({
+        name,
+        publications,
+      }))
+      .sort(
+        (a, b) =>
+          b.publications -
+          a.publications
+      )
+      .slice(0, 10);
+
+  const topCitedPublications = [
+    ...allPublications,
+  ]
+    .sort(
+      (a, b) =>
+        b.citations - a.citations
+    )
+    .slice(0, 10);
+
+  const closedAccessCount =
+    Math.max(
+      0,
+      allPublications.length -
+        openAccessCount
+    );
+
+  const openAccessRate =
+    allPublications.length > 0
+      ? (openAccessCount /
+          allPublications.length) *
+        100
+      : 0;
+
+  const highestCitedPaper =
+    topCitedPublications[0] || null;
+
+  return {
+    firstPublicationYear,
+    latestPublicationYear,
+    activeYears,
+    byYear,
+    publicationTypes,
+    topJournals,
+    topCollaborators,
+    topCitedPublications,
+    openAccessCount,
+    closedAccessCount,
+    openAccessRate,
+    highestCitedPaper,
+  };
+}, [curatedPublications, data]);
+
+if (loading) {
+  return (
+    <main className="mx-auto max-w-7xl px-6 py-16">
+      <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-700" />
+
+        <p className="mt-5 font-semibold text-slate-500">
+          Loading complete researcher profile...
+        </p>
+      </div>
+    </main>
+  );
+}
+
+if (error || !data) {
+  return (
+    <main className="mx-auto max-w-4xl px-6 py-16">
+      <div className="rounded-3xl border border-rose-200 bg-rose-50 p-8">
+        <h1 className="text-2xl font-black text-rose-900">
+          Researcher profile unavailable
+        </h1>
+
+        <p className="mt-3 text-rose-700">
+          {error ||
+            "The researcher profile could not be loaded."}
+        </p>
+
+        <Link
+          href="/search"
+          className="mt-6 inline-flex rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white"
+        >
+          Return to Search
+        </Link>
+      </div>
+    </main>
+  );
+}
 
   if (loading) {
     return (
@@ -1182,7 +2178,7 @@ function exportPublications(
   );
 
   const displayedPublicationCount =
-    publications.length;
+  curatedPublications.length;
 
   const averageCitations =
   profile.worksCount > 0
@@ -1203,6 +2199,8 @@ const alternativeNames =
         )
     )
   ).slice(0, 6);  
+
+  
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
@@ -1273,26 +2271,84 @@ const alternativeNames =
           )}
 
           <div className="mt-5 flex flex-wrap gap-3 print:hidden">
-            <a
-              href={profile.openAlexUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
-            >
-              OpenAlex
-            </a>
+  <a
+    href={profile.openAlexUrl}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+  >
+    OpenAlex
+  </a>
 
-            {profile.orcid && (
-              <a
-                href={profile.orcid}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
-              >
-                ORCID
-              </a>
-            )}
-          </div>
+  {profile.orcid && (
+    <a
+      href={profile.orcid}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
+    >
+      ORCID
+    </a>
+  )}
+
+  {claimLoading ? (
+    <span className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-400">
+      Checking claim...
+    </span>
+  ) : !user ? (
+    <button
+      type="button"
+      onClick={() => {
+        window.location.href =
+          `/signin?next=${encodeURIComponent(
+            `/researcher/${researcherId}`
+          )}`;
+      }}
+      className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+    >
+      Sign in to Claim
+    </button>
+  ) : !claim ? (
+    <button
+      type="button"
+      onClick={() =>
+        setShowClaimDialog(true)
+      }
+      className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-indigo-800"
+    >
+      Claim this Profile
+    </button>
+  ) : claim.claim_status === "pending" ? (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800">
+        Claim under review
+      </span>
+
+      <button
+        type="button"
+        onClick={withdrawProfileClaim}
+        disabled={claimSubmitting}
+        className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Withdraw
+      </button>
+    </div>
+  ) : claim.claim_status === "verified" ? (
+    <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800">
+      ✓ Profile owner
+    </span>
+  ) : (
+    <button
+      type="button"
+      onClick={() =>
+        setShowClaimDialog(true)
+      }
+      className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-bold text-rose-700 transition hover:bg-rose-100"
+    >
+      Claim rejected — Submit again
+    </button>
+  )}
+</div>
         </div>
       </div>
 
@@ -1470,6 +2526,12 @@ const alternativeNames =
   </div>
 </section>
 
+{claimMessage && (
+  <div className="fixed bottom-6 left-1/2 z-[120] -translate-x-1/2 rounded-2xl border border-indigo-200 bg-white px-6 py-4 text-sm font-bold text-indigo-700 shadow-2xl print:hidden">
+    {claimMessage}
+  </div>
+)}
+
       {shareMessage && (
         <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-bold text-emerald-700 shadow-xl print:hidden">
           {shareMessage}
@@ -1479,6 +2541,417 @@ const alternativeNames =
       {exportMessage && (
   <div className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-2xl border border-indigo-200 bg-white px-6 py-4 text-sm font-bold text-indigo-700 shadow-xl print:hidden">
     {exportMessage}
+  </div>
+)}
+
+{curationMessage && (
+  <div className="fixed bottom-6 left-1/2 z-[130] -translate-x-1/2 rounded-2xl border border-indigo-200 bg-white px-6 py-4 text-sm font-bold text-indigo-700 shadow-2xl print:hidden">
+    {curationMessage}
+  </div>
+)}
+
+{showClaimDialog && data && (
+  <div
+    className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 px-5 py-8 print:hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="claim-profile-title"
+    onClick={() =>
+      setShowClaimDialog(false)
+    }
+  >
+    <div
+      className="w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl"
+      onClick={(event) =>
+        event.stopPropagation()
+      }
+    >
+      <div className="flex items-start justify-between gap-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+            Profile Ownership
+          </p>
+
+          <h2
+            id="claim-profile-title"
+            className="mt-2 text-2xl font-black text-slate-950"
+          >
+            Claim Researcher Profile
+          </h2>
+
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Submit a request to manage this
+            researcher&apos;s OpenScholar profile.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setShowClaimDialog(false)
+          }
+          aria-label="Close profile claim dialog"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-xl font-bold text-slate-500 transition hover:bg-slate-50"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="mt-6 rounded-2xl bg-slate-50 p-5">
+        <p className="font-black text-slate-950">
+          {data.profile.name}
+        </p>
+
+        <p className="mt-1 text-sm text-slate-600">
+          {data.profile.affiliation}
+        </p>
+
+        <p className="mt-2 text-xs font-semibold text-slate-500">
+          OpenAlex ID: {data.profile.id}
+        </p>
+
+        {data.profile.orcid && (
+          <p className="mt-1 text-xs font-semibold text-emerald-700">
+            ORCID:{" "}
+            {data.profile.orcid.replace(
+              "https://orcid.org/",
+              ""
+            )}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-6">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Verification method
+        </label>
+
+        <select
+          value={verificationMethod}
+          onChange={(event) =>
+            setVerificationMethod(
+              event.target
+                .value as VerificationMethod
+            )
+          }
+          className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+        >
+          <option value="signed_in_email">
+            Signed-in email
+          </option>
+
+          <option value="institutional_email">
+            Institutional email
+          </option>
+
+          {data.profile.orcid && (
+            <option value="orcid">
+              ORCID associated with profile
+            </option>
+          )}
+
+          <option value="administrator">
+            Manual administrator review
+          </option>
+        </select>
+      </div>
+
+      <div className="mt-5">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Supporting note
+        </label>
+
+        <textarea
+          value={verificationNote}
+          onChange={(event) =>
+            setVerificationNote(
+              event.target.value
+            )
+          }
+          rows={5}
+          maxLength={1000}
+          placeholder="Explain why this profile belongs to you. You may mention your institutional email, department, ORCID or other identifying academic information."
+          className="mt-2 w-full resize-y rounded-2xl border border-slate-300 px-4 py-3 text-sm leading-6 outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+        />
+
+        <p className="mt-2 text-right text-xs text-slate-400">
+          {verificationNote.length}/1000
+        </p>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+        Submitting this request does not immediately
+        grant editing access. The claim must be
+        verified before publication editing is
+        enabled.
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() =>
+            setShowClaimDialog(false)
+          }
+          disabled={claimSubmitting}
+          className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={submitProfileClaim}
+          disabled={claimSubmitting}
+          className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {claimSubmitting
+            ? "Submitting..."
+            : "Submit Claim"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{publicationToExclude && (
+  <div
+    className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/55 px-5 py-8 print:hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="exclude-publication-title"
+    onClick={() =>
+      setPublicationToExclude(null)
+    }
+  >
+    <div
+      className="w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl"
+      onClick={(event) =>
+        event.stopPropagation()
+      }
+    >
+      <h2
+        id="exclude-publication-title"
+        className="text-2xl font-black text-slate-950"
+      >
+        Hide Publication from Profile
+      </h2>
+
+      <p className="mt-3 text-sm leading-6 text-slate-500">
+        This does not delete or modify the OpenAlex
+        record. It only removes the publication from
+        this OpenScholar profile.
+      </p>
+
+      <div className="mt-5 rounded-2xl bg-slate-50 p-5">
+        <p className="font-black leading-6 text-slate-900">
+          {stripHtml(
+            publicationToExclude.title
+          )}
+        </p>
+
+        <p className="mt-2 text-sm text-slate-500">
+          {publicationToExclude.journal}
+          {publicationToExclude.year
+            ? ` · ${publicationToExclude.year}`
+            : ""}
+        </p>
+      </div>
+
+      <div className="mt-5">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Reason
+        </label>
+
+        <select
+          value={exclusionReason}
+          onChange={(event) =>
+            setExclusionReason(
+              event.target.value as
+                | "different_author"
+                | "incorrect_assignment"
+                | "duplicate"
+                | "not_my_publication"
+                | "other"
+            )
+          }
+          className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+        >
+          <option value="not_my_publication">
+            This publication is not mine
+          </option>
+
+          <option value="different_author">
+            Different author with similar name
+          </option>
+
+          <option value="incorrect_assignment">
+            Incorrect database assignment
+          </option>
+
+          <option value="duplicate">
+            Duplicate publication
+          </option>
+
+          <option value="other">
+            Other reason
+          </option>
+        </select>
+      </div>
+
+      <div className="mt-5">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Additional note
+        </label>
+
+        <textarea
+          value={exclusionNote}
+          onChange={(event) =>
+            setExclusionNote(
+              event.target.value
+            )
+          }
+          rows={4}
+          maxLength={500}
+          placeholder="Optional explanation..."
+          className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+        />
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() =>
+            setPublicationToExclude(null)
+          }
+          disabled={
+            exclusionBusyId ===
+            publicationToExclude.id
+          }
+          className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={excludePublication}
+          disabled={
+            exclusionBusyId ===
+            publicationToExclude.id
+          }
+          className="rounded-xl bg-rose-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-700 disabled:opacity-50"
+        >
+          {exclusionBusyId ===
+          publicationToExclude.id
+            ? "Hiding..."
+            : "Hide Publication"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{showHiddenPublications && (
+  <div
+    className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/55 px-5 py-8 print:hidden"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="hidden-publications-title"
+    onClick={() =>
+      setShowHiddenPublications(false)
+    }
+  >
+    <div
+      className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl"
+      onClick={(event) =>
+        event.stopPropagation()
+      }
+    >
+      <div className="flex items-start justify-between gap-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
+            Profile Curation
+          </p>
+
+          <h2
+            id="hidden-publications-title"
+            className="mt-2 text-2xl font-black text-slate-950"
+          >
+            Hidden Publications
+          </h2>
+
+          <p className="mt-2 text-sm text-slate-500">
+            Restore any publication that was hidden
+            by mistake.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setShowHiddenPublications(false)
+          }
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-xl font-bold text-slate-500"
+        >
+          ×
+        </button>
+      </div>
+
+      {ownerExclusions.length === 0 ? (
+        <div className="mt-6 rounded-2xl bg-slate-50 p-6 text-sm text-slate-500">
+          No publications are hidden.
+        </div>
+      ) : (
+        <div className="mt-6 divide-y divide-slate-100">
+          {ownerExclusions.map(
+            (exclusion) => (
+              <div
+                key={exclusion.id}
+                className="flex flex-col gap-4 py-5 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div>
+                  <p className="font-black leading-6 text-slate-900">
+                    {exclusion.publication_title ||
+                      exclusion.openalex_work_id}
+                  </p>
+
+                  <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    {exclusion.reason
+                      ?.replaceAll("_", " ") ||
+                      "No reason provided"}
+                  </p>
+
+                  {exclusion.reason_note && (
+                    <p className="mt-2 text-sm text-slate-500">
+                      {exclusion.reason_note}
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    restorePublication(
+                      exclusion
+                    )
+                  }
+                  disabled={
+                    exclusionBusyId ===
+                    exclusion.openalex_work_id
+                  }
+                  className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  {exclusionBusyId ===
+                  exclusion.openalex_work_id
+                    ? "Restoring..."
+                    : "Restore"}
+                </button>
+              </div>
+            )
+          )}
+        </div>
+      )}
+    </div>
   </div>
 )}
 
@@ -1619,7 +3092,392 @@ const alternativeNames =
         </section>
       )}
 
-      <section className="mt-8">
+      <section
+  id="research-analytics"
+  className="mt-8"
+>
+  <div className="rounded-[2rem] border border-indigo-200 bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 p-7 text-white shadow-xl md:p-9">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.25em] text-indigo-300">
+          Research Intelligence
+        </p>
+
+        <h2 className="mt-3 text-3xl font-black">
+          Research Analytics Dashboard
+        </h2>
+
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+          Analytics are calculated from the complete
+          OpenAlex publication list currently loaded
+          for this researcher.
+        </p>
+      </div>
+
+      <a
+        href="#research-output"
+        className="rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-center text-sm font-bold text-white transition hover:bg-white/20 print:hidden"
+      >
+        Browse Publications
+      </a>
+    </div>
+
+    <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {[
+        [
+          "Career Span",
+          analytics.activeYears
+            ? `${analytics.activeYears} years`
+            : "Not available",
+        ],
+        [
+          "Open Access",
+          `${analytics.openAccessRate.toFixed(
+            1
+          )}%`,
+        ],
+        [
+          "Top Paper",
+          analytics.highestCitedPaper
+            ? `${analytics.highestCitedPaper.citations.toLocaleString()} citations`
+            : "Not available",
+        ],
+        [
+          "Publication Types",
+          analytics.publicationTypes.length.toLocaleString(),
+        ],
+      ].map(([label, value]) => (
+        <div
+          key={label}
+          className="rounded-3xl border border-white/10 bg-white/10 p-5 backdrop-blur"
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-indigo-300">
+            {label}
+          </p>
+
+          <p className="mt-3 text-2xl font-black text-white">
+            {value}
+          </p>
+        </div>
+      ))}
+    </div>
+
+    {analytics.firstPublicationYear &&
+      analytics.latestPublicationYear && (
+        <p className="mt-5 text-sm font-semibold text-slate-300">
+          Publication record spans{" "}
+          {analytics.firstPublicationYear}–
+          {analytics.latestPublicationYear}.
+        </p>
+      )}
+  </div>
+
+  <div className="mt-6 grid gap-6 xl:grid-cols-2">
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+          Timeline
+        </p>
+
+        <h3 className="mt-2 text-2xl font-black text-slate-950">
+          Publications by Year
+        </h3>
+      </div>
+
+      {analytics.byYear.length === 0 ? (
+        <p className="mt-6 text-sm text-slate-500">
+          Publication-year information is not
+          available.
+        </p>
+      ) : (
+        <div className="mt-6 max-h-[420px] space-y-4 overflow-y-auto pr-2">
+          {analytics.byYear
+            .slice()
+            .reverse()
+            .map((item) => (
+              <AnalyticsBar
+                key={item.year}
+                label={String(item.year)}
+                value={item.publications}
+                maximum={Math.max(
+                  ...analytics.byYear.map(
+                    (year) =>
+                      year.publications
+                  )
+                )}
+              />
+            ))}
+        </div>
+      )}
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
+          Citation Distribution
+        </p>
+
+        <h3 className="mt-2 text-2xl font-black text-slate-950">
+          Citations by Publication Year
+        </h3>
+
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          These values group each publication&apos;s
+          current citation count by its publication
+          year. They are not citations received
+          during that year.
+        </p>
+      </div>
+
+      {analytics.byYear.length === 0 ? (
+        <p className="mt-6 text-sm text-slate-500">
+          Citation-year information is not
+          available.
+        </p>
+      ) : (
+        <div className="mt-6 max-h-[420px] space-y-4 overflow-y-auto pr-2">
+          {analytics.byYear
+            .slice()
+            .reverse()
+            .map((item) => (
+              <AnalyticsBar
+                key={item.year}
+                label={String(item.year)}
+                value={item.citations}
+                maximum={Math.max(
+                  ...analytics.byYear.map(
+                    (year) =>
+                      year.citations
+                  ),
+                  1
+                )}
+              />
+            ))}
+        </div>
+      )}
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+        Output Composition
+      </p>
+
+      <h3 className="mt-2 text-2xl font-black text-slate-950">
+        Publication Types
+      </h3>
+
+      <div className="mt-6 space-y-4">
+        {analytics.publicationTypes.map(
+          (item) => (
+            <AnalyticsBar
+              key={item.label}
+              label={item.label}
+              value={item.count}
+              maximum={Math.max(
+                ...analytics.publicationTypes.map(
+                  (type) => type.count
+                ),
+                1
+              )}
+              detail={`(${(
+                (item.count /
+                  Math.max(
+                    publications.length,
+                    1
+                  )) *
+                100
+              ).toFixed(1)}%)`}
+            />
+          )
+        )}
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
+        Accessibility
+      </p>
+
+      <h3 className="mt-2 text-2xl font-black text-slate-950">
+        Open Access Coverage
+      </h3>
+
+      <div className="mt-7 grid grid-cols-2 gap-4">
+        <div className="rounded-3xl bg-emerald-50 p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+            Open Access
+          </p>
+
+          <p className="mt-3 text-3xl font-black text-emerald-900">
+            {analytics.openAccessCount}
+          </p>
+        </div>
+
+        <div className="rounded-3xl bg-slate-100 p-5">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-600">
+            Other Access
+          </p>
+
+          <p className="mt-3 text-3xl font-black text-slate-900">
+            {analytics.closedAccessCount}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 h-5 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full bg-emerald-500"
+          style={{
+            width: `${analytics.openAccessRate}%`,
+          }}
+        />
+      </div>
+
+      <p className="mt-3 text-sm font-semibold text-slate-600">
+        {analytics.openAccessRate.toFixed(
+          1
+        )}
+        % of loaded publications are identified as
+        open access.
+      </p>
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+        Publication Sources
+      </p>
+
+      <h3 className="mt-2 text-2xl font-black text-slate-950">
+        Top Journals and Sources
+      </h3>
+
+      {analytics.topJournals.length === 0 ? (
+        <p className="mt-6 text-sm text-slate-500">
+          Journal information is not available.
+        </p>
+      ) : (
+        <div className="mt-6 space-y-4">
+          {analytics.topJournals.map(
+            (journal) => (
+              <AnalyticsBar
+                key={journal.label}
+                label={journal.label}
+                value={journal.count}
+                maximum={Math.max(
+                  ...analytics.topJournals.map(
+                    (item) => item.count
+                  ),
+                  1
+                )}
+              />
+            )
+          )}
+        </div>
+      )}
+    </div>
+
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
+        Collaboration
+      </p>
+
+      <h3 className="mt-2 text-2xl font-black text-slate-950">
+        Top Collaborators
+      </h3>
+
+      {analytics.topCollaborators.length ===
+      0 ? (
+        <p className="mt-6 text-sm text-slate-500">
+          Collaborator information is not
+          available.
+        </p>
+      ) : (
+        <div className="mt-6 space-y-4">
+          {analytics.topCollaborators.map(
+            (collaborator) => (
+              <AnalyticsBar
+                key={collaborator.name}
+                label={collaborator.name}
+                value={
+                  collaborator.publications
+                }
+                maximum={Math.max(
+                  ...analytics.topCollaborators.map(
+                    (item) =>
+                      item.publications
+                  ),
+                  1
+                )}
+                detail="papers"
+              />
+            )
+          )}
+        </div>
+      )}
+    </div>
+  </div>
+
+  <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
+      Research Highlights
+    </p>
+
+    <h3 className="mt-2 text-2xl font-black text-slate-950">
+      Top 10 Most-Cited Publications
+    </h3>
+
+    <div className="mt-6 divide-y divide-slate-100">
+      {analytics.topCitedPublications.map(
+        (publication, index) => (
+          <div
+            key={publication.id}
+            className="flex flex-col gap-4 py-5 sm:flex-row sm:items-start"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 font-black text-amber-700">
+              {index + 1}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <a
+  href={publication.sourceUrl}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="font-black leading-6 text-slate-900 transition hover:text-indigo-700"
+>
+  {stripHtml(publication.title)}
+</a>
+
+              <p className="mt-2 text-sm text-slate-500">
+                {publication.journal}
+                {publication.year
+                  ? ` · ${publication.year}`
+                  : ""}
+              </p>
+            </div>
+
+            <div className="shrink-0 rounded-full bg-indigo-50 px-4 py-2 text-sm font-black text-indigo-700">
+              {publication.citations.toLocaleString()}{" "}
+              citations
+            </div>
+          </div>
+        )
+      )}
+    </div>
+  </div>
+
+  <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-900">
+    <strong>Analytics note:</strong>{" "}
+    Publication and citation figures are derived
+    from the OpenAlex records loaded by OpenScholar.
+    Citation totals grouped by publication year do
+    not represent annual citation-receipt history.
+  </div>
+</section>
+
+      <section
+  id="research-output"
+  className="mt-8"
+>
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.25em] text-indigo-700">
@@ -1781,7 +3639,7 @@ const alternativeNames =
         className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
       >
         Export All (
-        {data.publications.length})
+        {curatedPublications.length}
       </button>
 
       <button
@@ -1817,17 +3675,35 @@ const alternativeNames =
             </p>
           </div>
 
-          {publicationQuery && (
-            <button
-              type="button"
-              onClick={() =>
-                setPublicationQuery("")
-              }
-              className="text-sm font-bold text-indigo-700 hover:underline print:hidden"
-            >
-              Clear publication search
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-3">
+
+  {claim?.claim_status === "verified" && (
+    <button
+      type="button"
+      onClick={() =>
+        setShowHiddenPublications(true)
+      }
+      className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800 transition hover:bg-amber-100 print:hidden"
+    >
+      Hidden Publications (
+      {ownerExclusions.length})
+    </button>
+  )}
+
+  {publicationQuery && (
+    <button
+      type="button"
+      onClick={() =>
+        setPublicationQuery("")
+      }
+      className="text-sm font-bold text-indigo-700 hover:underline print:hidden"
+    >
+      Clear publication search
+    </button>
+  )}
+
+</div>
+          
         </div>
 
         {!publicationMeta.complete && (
@@ -1868,9 +3744,20 @@ const alternativeNames =
             {visiblePublications.map(
               (publication) => (
                 <PublicationCard
-                  key={publication.id}
-                  publication={publication}
-                />
+  key={publication.id}
+  publication={publication}
+  canCurate={
+    claim?.claim_status === "verified"
+  }
+  curationBusy={
+    exclusionBusyId === publication.id
+  }
+  onExclude={(selectedPublication) =>
+    setPublicationToExclude(
+      selectedPublication
+    )
+  }
+/>
               )
             )}
           </div>
