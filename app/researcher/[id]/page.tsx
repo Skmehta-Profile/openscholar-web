@@ -51,6 +51,47 @@ type Publication = {
   isOpenAccess: boolean;
   fullTextUrl: string | null;
   sourceUrl: string;
+
+  // OpenScholar-curated publication fields
+  manuallyAdded?: boolean;
+  verificationSource?: string | null;
+  metadataSource?: string | null;
+};
+
+type PublicationAddition = {
+  id: string;
+
+  title: string;
+
+  doi: string | null;
+
+  openalex_author_id: string;
+
+  publication_year: number | null;
+
+  publication_date: string | null;
+
+  journal: string;
+
+  authors: string;
+
+  publication_type: string;
+
+  citations: number;
+
+  biblio: string;
+
+  full_text_url: string | null;
+
+  openalex_work_id: string | null;
+
+  openalex_url: string | null;
+
+  verification_source: string;
+
+  metadata_source: string;
+
+  verification_status: string;
 };
 
 type PublicationMeta = {
@@ -761,12 +802,29 @@ function PublicationCard({
           {publication.citations.toLocaleString()} citations
         </span>
 
-        {publication.isOpenAccess && (
-          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-            Open Access
-          </span>
-        )}
-      </div>
+       {publication.isOpenAccess && (
+  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+    Open Access
+  </span>
+)}
+
+{publication.manuallyAdded && (
+  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
+    Curated Record
+  </span>
+)}
+
+{publication.verificationSource && (
+  <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-bold text-sky-800">
+    Verified via{" "}
+    {publication.verificationSource
+      .charAt(0)
+      .toUpperCase() +
+      publication.verificationSource.slice(1)}
+  </span>
+)}
+
+</div>
 
       <h3 className="mt-4 text-xl font-black leading-8 text-slate-950">
   {stripHtml(publication.title)}
@@ -792,13 +850,13 @@ function PublicationCard({
 
       <div className="mt-5 flex flex-wrap gap-3 print:hidden">
         <a
-          href={publication.sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
-        >
-          Open Source
-        </a>
+  href={publication.sourceUrl}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
+>
+  View Source
+</a>
 
         {publication.fullTextUrl && (
           <a
@@ -822,14 +880,16 @@ function PublicationCard({
           </a>
         )}
 
-        <a
-  href={publication.openAlexUrl}
-  target="_blank"
-  rel="noopener noreferrer"
-  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
->
-  OpenAlex
-</a>
+        {publication.openAlexUrl && (
+  <a
+    href={publication.openAlexUrl}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+  >
+    OpenAlex
+  </a>
+)}
 
 {canCurate && onExclude && (
   <button
@@ -914,6 +974,9 @@ const [claimMessage, setClaimMessage] =
 
 const [ownerExclusions, setOwnerExclusions] =
   useState<PublicationExclusion[]>([]);
+
+const [verifiedAdditions, setVerifiedAdditions] =
+  useState<Publication[]>([]);
 
 const [exclusionsLoading, setExclusionsLoading] =
   useState(true);
@@ -1315,6 +1378,91 @@ useEffect(() => {
     mounted = false;
   };
 }, [claim, researcherId, user]);
+
+useEffect(() => {
+  async function loadVerifiedAdditions() {
+    if (!researcherId) return;
+
+    const { data, error } = await supabase
+      .from("researcher_publication_additions")
+      .select("*")
+      .eq(
+        "openalex_author_id",
+        researcherId.toUpperCase()
+      )
+      .eq(
+        "verification_status",
+        "verified"
+      );
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    const additions =
+      (data as PublicationAddition[]).map(
+        (item) => ({
+          id: item.id,
+
+          openAlexUrl:
+            item.openalex_url || "",
+
+          title: item.title,
+
+          type:
+            item.publication_type ||
+            "article",
+
+          year:
+            item.publication_year,
+
+          publicationDate:
+            item.publication_date,
+
+          doi: item.doi
+            ? `https://doi.org/${item.doi}`
+            : null,
+
+          citations:
+            item.citations || 0,
+
+          journal:
+            item.journal,
+
+          authors:
+            item.authors,
+
+          biblio:
+            item.biblio,
+
+          isOpenAccess: Boolean(
+            item.full_text_url
+          ),
+
+          fullTextUrl:
+            item.full_text_url,
+
+          sourceUrl:
+            item.doi
+              ? `https://doi.org/${item.doi}`
+              : "",
+
+          metadataSource:
+            item.metadata_source,
+
+          verificationSource:
+            item.verification_source,
+
+          manuallyAdded: true,
+        })
+      );
+
+    setVerifiedAdditions(additions);
+  }
+
+  loadVerifiedAdditions();
+}, [researcherId]);
 
   function getShareableProfileUrl() {
   if (typeof window === "undefined") {
@@ -2043,6 +2191,7 @@ function exportPublications(
 
   const completeSortedList = [
   ...curatedPublications,
+  ...verifiedAdditions,
 ].sort(
     activeTab === "latest"
       ? (a, b) => {
@@ -2184,36 +2333,49 @@ const curatedPublications = useMemo(() => {
   );
 }, [data, excludedWorkIds]);
 
+const analyticsPublications = useMemo(
+  () => [
+    ...curatedPublications,
+    ...verifiedAdditions,
+  ],
+  [curatedPublications, verifiedAdditions]
+);
+
   const visiblePublications = useMemo(() => {
-    if (!data) {
-      return [];
+  if (!data) {
+    return [];
+  }
+
+  const allPublications = [
+    ...curatedPublications,
+    ...verifiedAdditions,
+  ];
+
+  const cleanQuery =
+    publicationQuery.trim().toLowerCase();
+
+const filtered = allPublications.filter(
+  (publication) => {
+    if (!cleanQuery) {
+      return true;
     }
 
-    const cleanQuery =
-      publicationQuery.trim().toLowerCase();
+    const searchableText = [
+      publication.title,
+      publication.authors,
+      publication.journal,
+      publication.year
+        ? String(publication.year)
+        : "",
+      publication.doi || "",
+      publication.type,
+    ]
+      .join(" ")
+      .toLowerCase();
 
-    const filtered = curatedPublications.filter(
-      (publication) => {
-        if (!cleanQuery) {
-          return true;
-        }
-
-        const searchableText = [
-          publication.title,
-          publication.authors,
-          publication.journal,
-          publication.year
-            ? String(publication.year)
-            : "",
-          publication.doi || "",
-          publication.type,
-        ]
-          .join(" ")
-          .toLowerCase();
-
-        return searchableText.includes(cleanQuery);
-      }
-    );
+    return searchableText.includes(cleanQuery);
+  }
+);
 
     const sorted = [...filtered];
 
@@ -2267,11 +2429,13 @@ const curatedPublications = useMemo(() => {
                 b.citations - a.citations
         );
     }
-  }, [
-  activeTab,
-  curatedPublications,
-  publicationQuery,
-  publicationSort,
+  },
+[
+ activeTab,
+ data,
+ verifiedAdditions,
+ publicationQuery,
+ publicationSort
 ]);
 
 const analytics = useMemo(() => {
@@ -2297,7 +2461,7 @@ const analytics = useMemo(() => {
 
   const profileName = data.profile.name;
   const allPublications =
-  curatedPublications;
+  analyticsPublications;
 
   const researcherNameVariants = new Set(
   [
@@ -2493,7 +2657,7 @@ const analytics = useMemo(() => {
     openAccessRate,
     highestCitedPaper,
   };
-}, [curatedPublications, data]);
+}, [analyticsPublications, data]);
 
 if (loading) {
   return (
@@ -2589,8 +2753,18 @@ if (error || !data) {
     profile.institutions
   );
 
-  const displayedPublicationCount =
+ const openAlexVisibleCount =
   curatedPublications.length;
+
+const researcherAddedCount =
+  verifiedAdditions.length;
+
+const displayedPublicationCount =
+  openAlexVisibleCount +
+  researcherAddedCount;
+
+const hiddenPublicationCount =
+  excludedWorkIds.size;
 
   const averageCitations =
   profile.worksCount > 0
@@ -3772,6 +3946,85 @@ const alternativeNames =
         </section>
       )}
 
+<section className="mt-8 rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+  <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-700">
+        Profile Integrity
+      </p>
+
+      <h2 className="mt-2 text-2xl font-black text-slate-950">
+        Profile Curation
+      </h2>
+
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+        This profile combines OpenAlex-indexed
+        publications with verified researcher
+        additions. Incorrectly attributed records
+        may be hidden without modifying the original
+        source database.
+      </p>
+    </div>
+
+    {claim?.claim_status === "verified" && (
+      <span className="inline-flex w-fit rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-700">
+        ✓ Researcher managed
+      </span>
+    )}
+  </div>
+
+  <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="rounded-2xl bg-slate-50 p-5">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+        OpenAlex Visible
+      </p>
+
+      <p className="mt-3 text-3xl font-black text-slate-950">
+        {openAlexVisibleCount.toLocaleString()}
+      </p>
+    </div>
+
+    <div className="rounded-2xl bg-indigo-50 p-5">
+      <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+        Curated Additions
+      </p>
+
+      <p className="mt-3 text-3xl font-black text-indigo-950">
+        {researcherAddedCount.toLocaleString()}
+      </p>
+    </div>
+
+    <div className="rounded-2xl bg-amber-50 p-5">
+      <p className="text-xs font-bold uppercase tracking-wide text-amber-700">
+        Hidden Records
+      </p>
+
+      <p className="mt-3 text-3xl font-black text-amber-950">
+        {excludedWorkIds.size.toLocaleString()}
+      </p>
+    </div>
+
+    <div className="rounded-2xl bg-emerald-50 p-5">
+      <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+        Public Profile Total
+      </p>
+
+      <p className="mt-3 text-3xl font-black text-emerald-950">
+        {displayedPublicationCount.toLocaleString()}
+      </p>
+    </div>
+  </div>
+
+  <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/50 px-5 py-4 text-xs leading-5 text-slate-600">
+    Citation metrics such as total citations,
+    h-index and i10-index remain sourced from
+    OpenAlex. Researcher-added records are included
+    in the visible publication list, profile
+    analytics and exports, but do not automatically
+    alter OpenAlex citation metrics.
+  </div>
+</section>
+
       <section
   id="research-analytics"
   className="mt-8"
@@ -4311,27 +4564,27 @@ const alternativeNames =
         </select>
       </div>
 
-      <button
-        type="button"
-        onClick={() =>
-          exportPublications("all")
-        }
-        className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
-      >
-        Export All (
-        {curatedPublications.length}
-      </button>
+     <button
+  type="button"
+  onClick={() =>
+    exportPublications("all")
+  }
+  className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+>
+  Export All (
+  {displayedPublicationCount})
+</button>
 
-      <button
-        type="button"
-        onClick={() =>
-          exportPublications("current")
-        }
-        className="rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
-      >
-        Export Current (
-        {visiblePublications.length})
-      </button>
+<button
+  type="button"
+  onClick={() =>
+    exportPublications("current")
+  }
+  className="rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+>
+  Export Current (
+  {visiblePublications.length})
+</button>
     </div>
   </div>
 </div>
