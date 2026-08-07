@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import CitationDialog from "@/app/components/CitationDialog";
+import AbstractDialog from "@/app/components/AbstractDialog";
 
 type SavedArticle = {
   id: string;
@@ -25,11 +31,122 @@ type Collection = {
   description: string | null;
 };
 
+type ReadingStatus =
+  | "want_to_read"
+  | "reading"
+  | "completed"
+  | "paused";
+
+type WorkspaceFilter =
+  | "all"
+  | "want_to_read"
+  | "reading"
+  | "completed"
+  | "paused"
+  | "recently_opened"
+  | "open_access";
+
+type WorkspaceItem = {
+  id: string;
+  user_id: string;
+  saved_article_id: string;
+  reading_status: ReadingStatus;
+  reading_progress: number;
+  started_at: string | null;
+  completed_at: string | null;
+  last_opened_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 function cleanText(value: string | null) {
-  return value?.replace(/<[^>]+>/g, "") || "";
+  return (
+    value?.replace(/<[^>]+>/g, "") || ""
+  );
 }
 
-function addToRecentlyViewed(article: SavedArticle) {
+function readingStatusLabel(
+  status: ReadingStatus
+) {
+  switch (status) {
+    case "reading":
+      return "Reading";
+
+    case "completed":
+      return "Completed";
+
+    case "paused":
+      return "Paused";
+
+    case "want_to_read":
+    default:
+      return "Want to Read";
+  }
+}
+
+function readingStatusIcon(
+  status: ReadingStatus
+) {
+  switch (status) {
+    case "reading":
+      return "📘";
+
+    case "completed":
+      return "✓";
+
+    case "paused":
+      return "Ⅱ";
+
+    case "want_to_read":
+    default:
+      return "📚";
+  }
+}
+
+function readingStatusClasses(
+  status: ReadingStatus
+) {
+  switch (status) {
+    case "reading":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+
+    case "completed":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+    case "paused":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+
+    case "want_to_read":
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-700";
+  }
+}
+
+function formatWorkspaceDate(
+  value: string | null
+) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function addToRecentlyViewed(
+  article: SavedArticle
+) {
   try {
     const viewedPaper = {
       id: article.id,
@@ -40,9 +157,11 @@ function addToRecentlyViewed(article: SavedArticle) {
       citations: article.citations || 0,
       year: article.year,
       doi: article.doi,
-      isOpenAccess: article.is_open_access || false,
+      isOpenAccess:
+        article.is_open_access || false,
       openAccessUrl: article.article_id,
-      sourceUrl: article.article_id || "",
+      sourceUrl:
+        article.article_id || "",
       type: "saved article",
       authorList: [],
       institutionList: [],
@@ -54,12 +173,17 @@ function addToRecentlyViewed(article: SavedArticle) {
     };
 
     const existing = JSON.parse(
-      localStorage.getItem("openscholar_recently_viewed") || "[]"
-    );
+      localStorage.getItem(
+        "openscholar_recently_viewed"
+      ) || "[]"
+    ) as Array<{ id?: string }>;
 
     const updated = [
       viewedPaper,
-      ...existing.filter((item: any) => item.id !== article.id),
+      ...existing.filter(
+        (item) =>
+          item.id !== article.id
+      ),
     ].slice(0, 10);
 
     localStorage.setItem(
@@ -67,28 +191,104 @@ function addToRecentlyViewed(article: SavedArticle) {
       JSON.stringify(updated)
     );
   } catch (error) {
-    console.error("Unable to update Recently Viewed", error);
+    console.error(
+      "Unable to update Recently Viewed",
+      error
+    );
   }
 }
 
 export default function LibraryPage() {
-  const [articles, setArticles] = useState<SavedArticle[]>([]);
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [selectedArticle, setSelectedArticle] = useState<SavedArticle | null>(
+  const [articles, setArticles] =
+    useState<SavedArticle[]>([]);
+
+  const [collections, setCollections] =
+    useState<Collection[]>([]);
+
+  const [
+    workspaceItems,
+    setWorkspaceItems,
+  ] = useState<
+    Record<string, WorkspaceItem>
+  >({});
+
+  const [
+    workspaceBusyArticleId,
+    setWorkspaceBusyArticleId,
+  ] = useState<string | null>(null);
+
+  const [
+    workspaceFilter,
+    setWorkspaceFilter,
+  ] = useState<WorkspaceFilter>("all");
+
+  const [
+    selectedArticle,
+    setSelectedArticle,
+  ] = useState<SavedArticle | null>(
     null
   );
-  const [selectedCollectionId, setSelectedCollectionId] = useState("");
-  const [collectionModalOpen, setCollectionModalOpen] = useState(false);
-  const [newCollectionName, setNewCollectionName] = useState("");
-const [newCollectionDescription, setNewCollectionDescription] = useState("");
-const [creatingCollection, setCreatingCollection] = useState(false);
 
-  const [loading, setLoading] = useState(true);
-  const [addingToCollection, setAddingToCollection] = useState(false);
-  const [message, setMessage] = useState("");
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState("saved");
-  const [collectionCount, setCollectionCount] = useState(0);
+  const [
+    selectedCollectionId,
+    setSelectedCollectionId,
+  ] = useState("");
+
+  const [
+    collectionModalOpen,
+    setCollectionModalOpen,
+  ] = useState(false);
+
+  const [
+    newCollectionName,
+    setNewCollectionName,
+  ] = useState("");
+
+  const [
+    newCollectionDescription,
+    setNewCollectionDescription,
+  ] = useState("");
+
+  const [
+    creatingCollection,
+    setCreatingCollection,
+  ] = useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [
+    addingToCollection,
+    setAddingToCollection,
+  ] = useState(false);
+
+  const [message, setMessage] =
+    useState("");
+
+  const [search, setSearch] =
+    useState("");
+
+  const [sort, setSort] =
+    useState("saved");
+
+  const [
+  citationArticle,
+  setCitationArticle,
+] = useState<SavedArticle | null>(
+  null
+); 
+
+const [
+  abstractArticle,
+  setAbstractArticle,
+] = useState<SavedArticle | null>(
+  null
+);
+
+  const [
+    collectionCount,
+    setCollectionCount,
+  ] = useState(0);
 
   useEffect(() => {
     loadLibrary();
@@ -97,274 +297,919 @@ const [creatingCollection, setCreatingCollection] = useState(false);
   async function loadLibrary() {
     setLoading(true);
 
-    const { data: userData } = await supabase.auth.getUser();
+    const { data: userData } =
+      await supabase.auth.getUser();
 
     if (!userData.user) {
       setLoading(false);
       return;
     }
 
-    const { data: collectionsData, count } = await supabase
-      .from("collections")
-      .select("id, name, description", { count: "exact" })
-      .eq("user_id", userData.user.id)
-      .order("created_at", { ascending: false });
+    const currentUser =
+      userData.user;
 
-    setCollections(collectionsData ?? []);
-    setCollectionCount(count ?? 0);
+    const [
+      collectionsResult,
+      articlesResult,
+      workspaceResult,
+    ] = await Promise.all([
+      supabase
+        .from("collections")
+        .select(
+          "id, name, description",
+          {
+            count: "exact",
+          }
+        )
+        .eq(
+          "user_id",
+          currentUser.id
+        )
+        .order("created_at", {
+          ascending: false,
+        }),
 
-    const { data, error } = await supabase
-      .from("saved_articles")
-      .select("*")
-      .eq("user_id", userData.user.id)
-      .order("saved_at", { ascending: false });
+      supabase
+        .from("saved_articles")
+        .select("*")
+        .eq(
+          "user_id",
+          currentUser.id
+        )
+        .order("saved_at", {
+          ascending: false,
+        }),
 
-    if (error) {
-      setMessage("Unable to load your library.");
+      supabase
+        .from(
+          "research_workspace_items"
+        )
+        .select("*")
+        .eq(
+          "user_id",
+          currentUser.id
+        ),
+    ]);
+
+    setCollections(
+      collectionsResult.data ?? []
+    );
+
+    setCollectionCount(
+      collectionsResult.count ?? 0
+    );
+
+    if (articlesResult.error) {
+      setMessage(
+        "Unable to load your library."
+      );
     } else {
-      setArticles(data || []);
+      setArticles(
+        articlesResult.data || []
+      );
+    }
+
+    if (workspaceResult.error) {
+      console.error(
+        "Unable to load research workspace:",
+        workspaceResult.error
+      );
+
+      setWorkspaceItems({});
+    } else {
+      const workspaceMap: Record<
+        string,
+        WorkspaceItem
+      > = {};
+
+      (
+        (workspaceResult.data ||
+          []) as WorkspaceItem[]
+      ).forEach((item) => {
+        workspaceMap[
+          item.saved_article_id
+        ] = item;
+      });
+
+      setWorkspaceItems(
+        workspaceMap
+      );
     }
 
     setLoading(false);
   }
 
-  async function removeArticle(id: string) {
-    const { error } = await supabase
-      .from("saved_articles")
-      .delete()
-      .eq("id", id);
+  async function updateReadingStatus(
+    article: SavedArticle,
+    status: ReadingStatus
+  ) {
+    setWorkspaceBusyArticleId(
+      article.id
+    );
+
+    try {
+      const { data: userData } =
+        await supabase.auth.getUser();
+
+      if (!userData.user) {
+        setMessage(
+          "Please sign in to update reading status."
+        );
+        return;
+      }
+
+      const currentItem =
+        workspaceItems[article.id];
+
+      const now =
+        new Date().toISOString();
+
+      const payload = {
+        user_id:
+          userData.user.id,
+
+        saved_article_id:
+          article.id,
+
+        reading_status: status,
+
+        reading_progress:
+          status === "completed"
+            ? 100
+            : currentItem
+                ?.reading_progress ?? 0,
+
+        started_at:
+          status === "reading"
+            ? currentItem
+                ?.started_at || now
+            : currentItem
+                ?.started_at || null,
+
+        completed_at:
+          status === "completed"
+            ? now
+            : null,
+      };
+
+      const {
+        data: updatedItem,
+        error,
+      } = await supabase
+        .from(
+          "research_workspace_items"
+        )
+        .upsert(payload, {
+          onConflict:
+            "user_id,saved_article_id",
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      setWorkspaceItems(
+        (current) => ({
+          ...current,
+
+          [article.id]:
+            updatedItem as WorkspaceItem,
+        })
+      );
+
+      setMessage(
+        `Reading status changed to ${readingStatusLabel(
+          status
+        )}.`
+      );
+    } catch (error) {
+      console.error(
+        "Unable to update reading status:",
+        error
+      );
+
+      setMessage(
+        "Unable to update reading status."
+      );
+    } finally {
+      setWorkspaceBusyArticleId(
+        null
+      );
+
+      window.setTimeout(() => {
+        setMessage("");
+      }, 3000);
+    }
+  }
+
+  async function removeArticle(
+    id: string
+  ) {
+    const { error } =
+      await supabase
+        .from("saved_articles")
+        .delete()
+        .eq("id", id);
 
     if (error) {
-      setMessage("Unable to remove article.");
+      setMessage(
+        "Unable to remove article."
+      );
       return;
     }
 
-    setArticles((prev) => prev.filter((item) => item.id !== id));
-    setMessage("Article removed from library.");
+    setArticles((prev) =>
+      prev.filter(
+        (item) => item.id !== id
+      )
+    );
+
+    setWorkspaceItems(
+      (current) => {
+        const next = {
+          ...current,
+        };
+
+        delete next[id];
+
+        return next;
+      }
+    );
+
+    setMessage(
+      "Article removed from library."
+    );
   }
 
-  function openCollectionModal(article: SavedArticle) {
+  function openCollectionModal(
+    article: SavedArticle
+  ) {
     setSelectedArticle(article);
-    setSelectedCollectionId(collections[0]?.id ?? "");
+
+    setSelectedCollectionId(
+      collections[0]?.id ?? ""
+    );
+
     setCollectionModalOpen(true);
   }
 
   function closeCollectionModal() {
-  setCollectionModalOpen(false);
-  setSelectedArticle(null);
-  setSelectedCollectionId("");
-  setAddingToCollection(false);
-  setCreatingCollection(false);
-  setNewCollectionName("");
-  setNewCollectionDescription("");
-}
+    setCollectionModalOpen(false);
+    setSelectedArticle(null);
+    setSelectedCollectionId("");
+    setAddingToCollection(false);
+    setCreatingCollection(false);
+    setNewCollectionName("");
+    setNewCollectionDescription("");
+  }
 
   async function createCollectionAndAddArticle() {
-  const cleanName = newCollectionName.trim();
-  const cleanDescription = newCollectionDescription.trim();
+    const cleanName =
+      newCollectionName.trim();
 
-  if (!selectedArticle) {
-    setMessage("Please select an article.");
-    return;
-  }
+    const cleanDescription =
+      newCollectionDescription.trim();
 
-  if (!cleanName) {
-    setMessage("Please enter a collection name.");
-    return;
-  }
-
-  setCreatingCollection(true);
-
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    setMessage("Please sign in to create collections.");
-    setCreatingCollection(false);
-    return;
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("plan, collection_limit")
-    .eq("id", userData.user.id)
-    .single();
-
-  const plan = profile?.plan || "free";
-  const collectionLimit = profile?.collection_limit ?? 3;
-
-  if (plan === "free" && collectionCount >= collectionLimit) {
-    setMessage(
-      `Free plan allows up to ${collectionLimit} collections. Upgrade to OpenScholar Premium for unlimited collections.`
-    );
-    setCreatingCollection(false);
-    return;
-  }
-
-  const { data: newCollection, error: collectionError } = await supabase
-    .from("collections")
-    .insert({
-      user_id: userData.user.id,
-      name: cleanName,
-      description: cleanDescription || null,
-    })
-    .select("id, name, description")
-    .single();
-
-  if (collectionError || !newCollection) {
-    setMessage("Unable to create collection.");
-    setCreatingCollection(false);
-    return;
-  }
-
-  const { error: linkError } = await supabase
-    .from("collection_articles")
-    .insert({
-      user_id: userData.user.id,
-      collection_id: newCollection.id,
-      saved_article_id: selectedArticle.id,
-    });
-
-  if (linkError) {
-    setMessage("Collection created, but article could not be added.");
-    setCreatingCollection(false);
-    return;
-  }
-
-  setCollections((prev) => [newCollection, ...prev]);
-  setCollectionCount((prev) => prev + 1);
-  setNewCollectionName("");
-  setNewCollectionDescription("");
-  setCreatingCollection(false);
-  setMessage("Collection created and article added.");
-  closeCollectionModal();
-}
-
-  async function addArticleToCollection() {
-  if (!selectedArticle || !selectedCollectionId) {
-    setMessage("Please select a collection.");
-    return;
-  }
-
-  setAddingToCollection(true);
-
-  const { data: userData } = await supabase.auth.getUser();
-
-  if (!userData.user) {
-    setMessage("Please sign in to add articles to collections.");
-    setAddingToCollection(false);
-    return;
-  }
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("plan, papers_per_collection_limit")
-    .eq("id", userData.user.id)
-    .single();
-
-  const plan = profile?.plan || "free";
-  const papersPerCollectionLimit = profile?.papers_per_collection_limit ?? 25;
-
-  const { data: existingLink } = await supabase
-    .from("collection_articles")
-    .select("id")
-    .eq("user_id", userData.user.id)
-    .eq("collection_id", selectedCollectionId)
-    .eq("saved_article_id", selectedArticle.id)
-    .maybeSingle();
-
-  if (existingLink) {
-    setMessage("This article is already in the selected collection.");
-    setAddingToCollection(false);
-    return;
-  }
-
-  if (plan === "free") {
-    const { count } = await supabase
-      .from("collection_articles")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userData.user.id)
-      .eq("collection_id", selectedCollectionId);
-
-    if ((count ?? 0) >= papersPerCollectionLimit) {
+    if (!selectedArticle) {
       setMessage(
-        `This collection has reached the free-plan limit of ${papersPerCollectionLimit} papers. Upgrade to OpenScholar Premium for unlimited papers per collection.`
+        "Please select an article."
       );
-      setAddingToCollection(false);
       return;
     }
-  }
 
-  const { error } = await supabase.from("collection_articles").insert({
-    user_id: userData.user.id,
-    collection_id: selectedCollectionId,
-    saved_article_id: selectedArticle.id,
-  });
+    if (!cleanName) {
+      setMessage(
+        "Please enter a collection name."
+      );
+      return;
+    }
 
-  if (error) {
-    setMessage("Unable to add article to collection.");
-    setAddingToCollection(false);
-    return;
-  }
+    setCreatingCollection(true);
 
-  setMessage("Article added to collection.");
-  closeCollectionModal();
-}
+    const { data: userData } =
+      await supabase.auth.getUser();
 
-  function copyApaCitation(article: SavedArticle) {
-    const citation = `${article.authors || "Unknown author"} (${
-      article.year || "n.d."
-    }). ${cleanText(article.title) || "Untitled article"}. ${
-      article.journal || "Unknown source"
-    }${article.biblio ? `, ${article.biblio}` : ""}.${
-      article.doi ? ` ${article.doi}` : ""
-    }${article.citations ? ` Cited ${article.citations} times.` : ""}`;
+    if (!userData.user) {
+      setMessage(
+        "Please sign in to create collections."
+      );
+      setCreatingCollection(false);
+      return;
+    }
 
-    navigator.clipboard.writeText(citation);
-    setMessage("APA-style citation copied.");
-  }
+    const { data: profile } =
+      await supabase
+        .from("profiles")
+        .select(
+          "plan, collection_limit"
+        )
+        .eq(
+          "id",
+          userData.user.id
+        )
+        .single();
 
-  const totalCitations = articles.reduce(
-    (sum, item) => sum + (item.citations || 0),
-    0
-  );
+    const plan =
+      profile?.plan || "free";
 
-  const openAccessCount = articles.filter(
-    (item) => item.is_open_access
-  ).length;
+    const collectionLimit =
+      profile?.collection_limit ?? 3;
 
-  const filteredArticles = useMemo(() => {
-    const q = search.toLowerCase().trim();
+    if (
+      plan === "free" &&
+      collectionCount >=
+        collectionLimit
+    ) {
+      setMessage(
+        `Free plan allows up to ${collectionLimit} collections. Upgrade to OpenScholar Premium for unlimited collections.`
+      );
 
-    let list = articles.filter((article) =>
-      [
-        article.title,
-        article.authors,
-        article.journal,
-        article.doi,
-        article.year?.toString(),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
+      setCreatingCollection(false);
+
+      return;
+    }
+
+    const {
+      data: newCollection,
+      error: collectionError,
+    } = await supabase
+      .from("collections")
+      .insert({
+        user_id:
+          userData.user.id,
+        name: cleanName,
+        description:
+          cleanDescription || null,
+      })
+      .select(
+        "id, name, description"
+      )
+      .single();
+
+    if (
+      collectionError ||
+      !newCollection
+    ) {
+      setMessage(
+        "Unable to create collection."
+      );
+
+      setCreatingCollection(false);
+
+      return;
+    }
+
+    const { error: linkError } =
+      await supabase
+        .from(
+          "collection_articles"
+        )
+        .insert({
+          user_id:
+            userData.user.id,
+
+          collection_id:
+            newCollection.id,
+
+          saved_article_id:
+            selectedArticle.id,
+        });
+
+    if (linkError) {
+      setMessage(
+        "Collection created, but article could not be added."
+      );
+
+      setCreatingCollection(false);
+
+      return;
+    }
+
+    setCollections((prev) => [
+      newCollection,
+      ...prev,
+    ]);
+
+    setCollectionCount(
+      (prev) => prev + 1
     );
 
-    if (sort === "cited") {
-      list = [...list].sort(
-        (a, b) => (b.citations || 0) - (a.citations || 0)
+    setNewCollectionName("");
+    setNewCollectionDescription("");
+
+    setCreatingCollection(false);
+
+    setMessage(
+      "Collection created and article added."
+    );
+
+    closeCollectionModal();
+  }
+
+  async function addArticleToCollection() {
+    if (
+      !selectedArticle ||
+      !selectedCollectionId
+    ) {
+      setMessage(
+        "Please select a collection."
       );
+      return;
     }
 
-    if (sort === "newestYear") {
-      list = [...list].sort((a, b) => (b.year || 0) - (a.year || 0));
+    setAddingToCollection(true);
+
+    const { data: userData } =
+      await supabase.auth.getUser();
+
+    if (!userData.user) {
+      setMessage(
+        "Please sign in to add articles to collections."
+      );
+
+      setAddingToCollection(false);
+
+      return;
     }
 
-    if (sort === "oldestYear") {
-      list = [...list].sort((a, b) => (a.year || 9999) - (b.year || 9999));
+    const { data: profile } =
+      await supabase
+        .from("profiles")
+        .select(
+          "plan, papers_per_collection_limit"
+        )
+        .eq(
+          "id",
+          userData.user.id
+        )
+        .single();
+
+    const plan =
+      profile?.plan || "free";
+
+    const papersPerCollectionLimit =
+      profile?.papers_per_collection_limit ??
+      25;
+
+    const {
+      data: existingLink,
+    } = await supabase
+      .from(
+        "collection_articles"
+      )
+      .select("id")
+      .eq(
+        "user_id",
+        userData.user.id
+      )
+      .eq(
+        "collection_id",
+        selectedCollectionId
+      )
+      .eq(
+        "saved_article_id",
+        selectedArticle.id
+      )
+      .maybeSingle();
+
+    if (existingLink) {
+      setMessage(
+        "This article is already in the selected collection."
+      );
+
+      setAddingToCollection(false);
+
+      return;
     }
 
-    return list;
-  }, [articles, search, sort]);
+    if (plan === "free") {
+      const { count } =
+        await supabase
+          .from(
+            "collection_articles"
+          )
+          .select("*", {
+            count: "exact",
+            head: true,
+          })
+          .eq(
+            "user_id",
+            userData.user.id
+          )
+          .eq(
+            "collection_id",
+            selectedCollectionId
+          );
+
+      if (
+        (count ?? 0) >=
+        papersPerCollectionLimit
+      ) {
+        setMessage(
+          `This collection has reached the free-plan limit of ${papersPerCollectionLimit} papers. Upgrade to OpenScholar Premium for unlimited papers per collection.`
+        );
+
+        setAddingToCollection(false);
+
+        return;
+      }
+    }
+
+    const { error } =
+      await supabase
+        .from(
+          "collection_articles"
+        )
+        .insert({
+          user_id:
+            userData.user.id,
+
+          collection_id:
+            selectedCollectionId,
+
+          saved_article_id:
+            selectedArticle.id,
+        });
+
+    if (error) {
+      setMessage(
+        "Unable to add article to collection."
+      );
+
+      setAddingToCollection(false);
+
+      return;
+    }
+
+    setMessage(
+      "Article added to collection."
+    );
+
+    closeCollectionModal();
+  }
+
+  function copyApaCitation(
+    article: SavedArticle
+  ) {
+    const citation = `${
+      article.authors ||
+      "Unknown author"
+    } (${
+      article.year || "n.d."
+    }). ${
+      cleanText(article.title) ||
+      "Untitled article"
+    }. ${
+      article.journal ||
+      "Unknown source"
+    }${
+      article.biblio
+        ? `, ${article.biblio}`
+        : ""
+    }.${
+      article.doi
+        ? ` ${article.doi}`
+        : ""
+    }${
+      article.citations
+        ? ` Cited ${article.citations} times.`
+        : ""
+    }`;
+
+    navigator.clipboard.writeText(
+      citation
+    );
+
+    setMessage(
+      "APA-style citation copied."
+    );
+  }
+
+  const openAccessCount =
+    articles.filter(
+      (item) =>
+        item.is_open_access
+    ).length;
+
+  const readingCounts =
+    useMemo(() => {
+      const counts = {
+        want_to_read: 0,
+        reading: 0,
+        completed: 0,
+        paused: 0,
+      };
+
+      articles.forEach((article) => {
+        const status =
+          workspaceItems[
+            article.id
+          ]?.reading_status ||
+          "want_to_read";
+
+        counts[status] += 1;
+      });
+
+      return counts;
+    }, [
+      articles,
+      workspaceItems,
+    ]);
+
+  const workspaceArticles =
+    useMemo(() => {
+      return articles.map(
+        (article) => {
+          const workspace =
+            workspaceItems[
+              article.id
+            ];
+
+          return {
+            article,
+            workspace,
+
+            readingStatus:
+              workspace
+                ?.reading_status ||
+              ("want_to_read" as ReadingStatus),
+          };
+        }
+      );
+    }, [
+      articles,
+      workspaceItems,
+    ]);
+
+  const continueReadingArticles =
+    useMemo(() => {
+      return workspaceArticles
+        .filter(
+          ({ readingStatus }) =>
+            readingStatus ===
+            "reading"
+        )
+        .sort((a, b) => {
+          const dateA =
+            a.workspace
+              ?.last_opened_at ||
+            a.workspace
+              ?.started_at ||
+            "";
+
+          const dateB =
+            b.workspace
+              ?.last_opened_at ||
+            b.workspace
+              ?.started_at ||
+            "";
+
+          return dateB.localeCompare(
+            dateA
+          );
+        })
+        .slice(0, 3);
+    }, [workspaceArticles]);
+
+  const recentlyOpenedArticles =
+    useMemo(() => {
+      return workspaceArticles
+        .filter(
+          ({ workspace }) =>
+            Boolean(
+              workspace
+                ?.last_opened_at
+            )
+        )
+        .sort((a, b) =>
+          (
+            b.workspace
+              ?.last_opened_at ||
+            ""
+          ).localeCompare(
+            a.workspace
+              ?.last_opened_at ||
+              ""
+          )
+        )
+        .slice(0, 5);
+    }, [workspaceArticles]);
+
+  const totalRecentlyOpenedCount =
+    useMemo(
+      () =>
+        workspaceArticles.filter(
+          ({ workspace }) =>
+            Boolean(
+              workspace
+                ?.last_opened_at
+            )
+        ).length,
+      [workspaceArticles]
+    );
+
+  const todayOpenedCount =
+    useMemo(() => {
+      const today =
+        new Date().toDateString();
+
+      return workspaceArticles.filter(
+        ({ workspace }) => {
+          if (
+            !workspace
+              ?.last_opened_at
+          ) {
+            return false;
+          }
+
+          return (
+            new Date(
+              workspace.last_opened_at
+            ).toDateString() ===
+            today
+          );
+        }
+      ).length;
+    }, [workspaceArticles]);
+
+  const workspaceStartedCount =
+    useMemo(
+      () =>
+        workspaceArticles.filter(
+          ({ workspace }) =>
+            Boolean(
+              workspace?.started_at
+            )
+        ).length,
+      [workspaceArticles]
+    );
+
+  const workspaceCompletedCount =
+    readingCounts.completed;
+
+  const workspaceActiveCount =
+    readingCounts.reading +
+    readingCounts.paused;
+
+  const filteredArticles =
+    useMemo(() => {
+      const q =
+        search
+          .toLowerCase()
+          .trim();
+
+      let list = articles.filter(
+        (article) => {
+          const workspace =
+            workspaceItems[
+              article.id
+            ];
+
+          const readingStatus =
+            workspace
+              ?.reading_status ||
+            "want_to_read";
+
+          if (
+            workspaceFilter ===
+              "want_to_read" &&
+            readingStatus !==
+              "want_to_read"
+          ) {
+            return false;
+          }
+
+          if (
+            workspaceFilter ===
+              "reading" &&
+            readingStatus !==
+              "reading"
+          ) {
+            return false;
+          }
+
+          if (
+            workspaceFilter ===
+              "completed" &&
+            readingStatus !==
+              "completed"
+          ) {
+            return false;
+          }
+
+          if (
+            workspaceFilter ===
+              "paused" &&
+            readingStatus !==
+              "paused"
+          ) {
+            return false;
+          }
+
+          if (
+            workspaceFilter ===
+              "recently_opened" &&
+            !workspace
+              ?.last_opened_at
+          ) {
+            return false;
+          }
+
+          if (
+            workspaceFilter ===
+              "open_access" &&
+            !article.is_open_access
+          ) {
+            return false;
+          }
+
+          if (!q) {
+            return true;
+          }
+
+          return [
+            article.title,
+            article.authors,
+            article.journal,
+            article.doi,
+            article.year?.toString(),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(q);
+        }
+      );
+
+      if (
+        workspaceFilter ===
+        "recently_opened"
+      ) {
+        list = [...list].sort(
+          (a, b) =>
+            (
+              workspaceItems[b.id]
+                ?.last_opened_at ||
+              ""
+            ).localeCompare(
+              workspaceItems[a.id]
+                ?.last_opened_at ||
+                ""
+            )
+        );
+
+        return list;
+      }
+
+      if (sort === "cited") {
+        list = [...list].sort(
+          (a, b) =>
+            (b.citations || 0) -
+            (a.citations || 0)
+        );
+      }
+
+      if (
+        sort === "newestYear"
+      ) {
+        list = [...list].sort(
+          (a, b) =>
+            (b.year || 0) -
+            (a.year || 0)
+        );
+      }
+
+      if (
+        sort === "oldestYear"
+      ) {
+        list = [...list].sort(
+          (a, b) =>
+            (a.year || 9999) -
+            (b.year || 9999)
+        );
+      }
+
+      if (sort === "saved") {
+        list = [...list].sort(
+          (a, b) =>
+            (
+              b.saved_at || ""
+            ).localeCompare(
+              a.saved_at || ""
+            )
+        );
+      }
+
+      return list;
+    }, [
+      articles,
+      search,
+      sort,
+      workspaceFilter,
+      workspaceItems,
+    ]);
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
@@ -374,138 +1219,217 @@ const [creatingCollection, setCreatingCollection] = useState(false);
         </div>
       )}
 
-      {collectionModalOpen && selectedArticle && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
-    <div className="w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-bold uppercase tracking-[0.25em] text-indigo-700">
-            Add to Collection
-          </p>
+      <CitationDialog
+  open={Boolean(citationArticle)}
+  article={citationArticle}
+  onClose={() =>
+    setCitationArticle(null)
+  }
+/>
 
-          <h2 className="mt-3 text-2xl font-black text-slate-950">
-            {collections.length === 0
-              ? "Create your first collection"
-              : "Select collection"}
-          </h2>
+<AbstractDialog
+  open={Boolean(
+    abstractArticle
+  )}
+  article={abstractArticle}
+  onClose={() =>
+    setAbstractArticle(null)
+  }
+/>
 
-          <p className="mt-2 line-clamp-2 text-sm text-slate-500">
-            {cleanText(selectedArticle.title) || "Untitled article"}
-          </p>
-        </div>
+      {collectionModalOpen &&
+        selectedArticle && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.25em] text-indigo-700">
+                    Add to Collection
+                  </p>
 
-        <button
-          onClick={closeCollectionModal}
-          className="rounded-full border border-slate-200 px-3 py-1 text-sm font-bold text-slate-500 hover:bg-slate-50"
-        >
-          ×
-        </button>
-      </div>
+                  <h2 className="mt-3 text-2xl font-black text-slate-950">
+                    {collections.length ===
+                    0
+                      ? "Create your first collection"
+                      : "Select collection"}
+                  </h2>
 
-      {collections.length === 0 ? (
-        <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
-          <p className="text-lg font-black text-slate-950">
-            Create your first collection
-          </p>
+                  <p className="mt-2 line-clamp-2 text-sm text-slate-500">
+                    {cleanText(
+                      selectedArticle.title
+                    ) ||
+                      "Untitled article"}
+                  </p>
+                </div>
 
-          <p className="mt-2 text-sm text-slate-500">
-            You do not have any collections yet. Create one now and this article
-            will be added automatically.
-          </p>
+                <button
+                  type="button"
+                  onClick={
+                    closeCollectionModal
+                  }
+                  className="rounded-full border border-slate-200 px-3 py-1 text-sm font-bold text-slate-500 hover:bg-slate-50"
+                >
+                  ×
+                </button>
+              </div>
 
-          <div className="mt-5 space-y-4">
-            <input
-              value={newCollectionName}
-              onChange={(event) => setNewCollectionName(event.target.value)}
-              placeholder="Example: Thesis Literature"
-              className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
-            />
+              {collections.length ===
+              0 ? (
+                <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                  <p className="text-lg font-black text-slate-950">
+                    Create your first
+                    collection
+                  </p>
 
-            <textarea
-              value={newCollectionDescription}
-              onChange={(event) =>
-                setNewCollectionDescription(event.target.value)
-              }
-              placeholder="Optional description"
-              rows={3}
-              className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
-            />
+                  <p className="mt-2 text-sm text-slate-500">
+                    You do not have any
+                    collections yet. Create
+                    one now and this article
+                    will be added
+                    automatically.
+                  </p>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <button
-                onClick={closeCollectionModal}
-                className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-600 hover:bg-white"
-              >
-                Cancel
-              </button>
+                  <div className="mt-5 space-y-4">
+                    <input
+                      value={
+                        newCollectionName
+                      }
+                      onChange={(event) =>
+                        setNewCollectionName(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Example: Thesis Literature"
+                      className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+                    />
 
-              <button
-                onClick={createCollectionAndAddArticle}
-                disabled={creatingCollection}
-                className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {creatingCollection ? "Creating..." : "Create & Add Article"}
-              </button>
+                    <textarea
+                      value={
+                        newCollectionDescription
+                      }
+                      onChange={(event) =>
+                        setNewCollectionDescription(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Optional description"
+                      rows={3}
+                      className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm text-slate-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+                    />
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={
+                          closeCollectionModal
+                        }
+                        className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-600 hover:bg-white"
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={
+                          createCollectionAndAddArticle
+                        }
+                        disabled={
+                          creatingCollection
+                        }
+                        className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {creatingCollection
+                          ? "Creating..."
+                          : "Create & Add Article"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-6 space-y-3">
+                    {collections.map(
+                      (collection) => (
+                        <label
+                          key={
+                            collection.id
+                          }
+                          className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
+                            selectedCollectionId ===
+                            collection.id
+                              ? "border-indigo-500 bg-indigo-50"
+                              : "border-slate-200 bg-white hover:bg-slate-50"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="collection"
+                            value={
+                              collection.id
+                            }
+                            checked={
+                              selectedCollectionId ===
+                              collection.id
+                            }
+                            onChange={() =>
+                              setSelectedCollectionId(
+                                collection.id
+                              )
+                            }
+                            className="mt-1"
+                          />
+
+                          <span>
+                            <span className="block font-black text-slate-950">
+                              {
+                                collection.name
+                              }
+                            </span>
+
+                            {collection.description && (
+                              <span className="mt-1 block text-sm text-slate-500">
+                                {
+                                  collection.description
+                                }
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      )
+                    )}
+                  </div>
+
+                  <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={
+                        closeCollectionModal
+                      }
+                      className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={
+                        addArticleToCollection
+                      }
+                      disabled={
+                        addingToCollection
+                      }
+                      className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {addingToCollection
+                        ? "Adding..."
+                        : "Add to Collection"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
-        </div>
-      ) : (
-        <>
-          <div className="mt-6 space-y-3">
-            {collections.map((collection) => (
-              <label
-                key={collection.id}
-                className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition ${
-                  selectedCollectionId === collection.id
-                    ? "border-indigo-500 bg-indigo-50"
-                    : "border-slate-200 bg-white hover:bg-slate-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="collection"
-                  value={collection.id}
-                  checked={selectedCollectionId === collection.id}
-                  onChange={() => setSelectedCollectionId(collection.id)}
-                  className="mt-1"
-                />
-
-                <span>
-                  <span className="block font-black text-slate-950">
-                    {collection.name}
-                  </span>
-
-                  {collection.description && (
-                    <span className="mt-1 block text-sm text-slate-500">
-                      {collection.description}
-                    </span>
-                  )}
-                </span>
-              </label>
-            ))}
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <button
-              onClick={closeCollectionModal}
-              className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-
-            <button
-              onClick={addArticleToCollection}
-              disabled={addingToCollection}
-              className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {addingToCollection ? "Adding..." : "Add to Collection"}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  </div>
-)}
+        )}
 
       <section className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
         <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-indigo-100 blur-3xl" />
@@ -521,52 +1445,434 @@ const [creatingCollection, setCreatingCollection] = useState(false);
           </h1>
 
           <p className="mt-3 max-w-2xl text-lg leading-8 text-slate-600">
-            A citation-ready workspace for saved scholarly literature.
+            Save, organize and track
+            scholarly literature throughout
+            your research workflow.
           </p>
 
           <div className="mt-8 grid gap-4 md:grid-cols-4">
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-bold text-slate-500">Total Saved</p>
+              <p className="text-sm font-bold text-slate-500">
+                Total Saved
+              </p>
+
               <p className="mt-2 text-3xl font-black text-indigo-700">
                 {articles.length}
               </p>
-              <p className="text-sm text-slate-500">articles</p>
+
+              <p className="text-sm text-slate-500">
+                articles
+              </p>
             </div>
 
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-sm font-bold text-slate-500">
-                Total Citations
+                Reading
               </p>
-              <p className="mt-2 text-3xl font-black text-purple-700">
-                {totalCitations}
+
+              <p className="mt-2 text-3xl font-black text-blue-700">
+                {
+                  readingCounts.reading
+                }
               </p>
-              <p className="text-sm text-slate-500">across saved papers</p>
+
+              <p className="text-sm text-slate-500">
+                active papers
+              </p>
             </div>
 
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-bold text-slate-500">Open Access</p>
+              <p className="text-sm font-bold text-slate-500">
+                Completed
+              </p>
+
               <p className="mt-2 text-3xl font-black text-emerald-600">
-                {openAccessCount}
+                {
+                  readingCounts.completed
+                }
               </p>
-              <p className="text-sm text-slate-500">available records</p>
+
+              <p className="text-sm text-slate-500">
+                papers read
+              </p>
             </div>
 
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-bold text-slate-500">Collections</p>
+              <p className="text-sm font-bold text-slate-500">
+                Collections
+              </p>
+
               <p className="mt-2 text-3xl font-black text-slate-950">
                 {collectionCount}
               </p>
-              <p className="text-sm text-slate-500">active collections</p>
+
+              <p className="text-sm text-slate-500">
+                active collections
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl bg-slate-50 px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                Want to Read
+              </p>
+
+              <p className="mt-1 text-xl font-black text-slate-800">
+                {
+                  readingCounts.want_to_read
+                }
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-blue-50 px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-blue-600">
+                Reading
+              </p>
+
+              <p className="mt-1 text-xl font-black text-blue-800">
+                {
+                  readingCounts.reading
+                }
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-emerald-50 px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-emerald-600">
+                Completed
+              </p>
+
+              <p className="mt-1 text-xl font-black text-emerald-800">
+                {
+                  readingCounts.completed
+                }
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-amber-50 px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-amber-600">
+                Paused
+              </p>
+
+              <p className="mt-1 text-xl font-black text-amber-800">
+                {
+                  readingCounts.paused
+                }
+              </p>
             </div>
           </div>
         </div>
       </section>
 
+      <section className="mt-8">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-indigo-700">
+            Research Workspace
+          </p>
+
+          <h2 className="mt-2 text-3xl font-black text-slate-950">
+            Continue Your Research
+          </h2>
+
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
+            Resume active papers, revisit
+            recently opened literature and
+            manage your current reading queue.
+          </p>
+        </div>
+
+        <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
+          <div className="rounded-[2rem] border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-blue-50 p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+                  Continue Reading
+                </p>
+
+                <h3 className="mt-2 text-2xl font-black text-slate-950">
+                  Active Papers
+                </h3>
+              </div>
+
+              <span className="rounded-full bg-indigo-100 px-4 py-2 text-sm font-black text-indigo-700">
+                {
+                  readingCounts.reading
+                }
+              </span>
+            </div>
+
+            {continueReadingArticles.length ===
+            0 ? (
+              <div className="mt-6 rounded-2xl border border-dashed border-indigo-200 bg-white/70 p-6">
+                <p className="font-bold text-slate-800">
+                  Nothing currently being
+                  read
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Change a saved paper to
+                  Reading or open it in
+                  OpenScholar Reader.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-3">
+                {continueReadingArticles.map(
+                  ({
+                    article,
+                    workspace,
+                  }) => (
+                    <div
+                      key={
+                        article.id
+                      }
+                      className="rounded-2xl border border-white bg-white/90 p-5 shadow-sm"
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 font-black leading-6 text-slate-950">
+                            {cleanText(
+                              article.title
+                            ) ||
+                              "Untitled article"}
+                          </p>
+
+                          <p className="mt-2 text-xs font-semibold text-slate-500">
+                            {article.journal ||
+                              "Unknown source"}
+                            {article.year
+                              ? ` · ${article.year}`
+                              : ""}
+                          </p>
+
+                          {workspace?.last_opened_at && (
+                            <p className="mt-2 text-xs text-slate-400">
+                              Last opened{" "}
+                              {formatWorkspaceDate(
+                                workspace.last_opened_at
+                              )}
+                            </p>
+                          )}
+                        </div>
+
+                        <Link
+                          href={`/reader/${article.id}`}
+                          onClick={() =>
+                            addToRecentlyViewed(
+                              article
+                            )
+                          }
+                          className="shrink-0 rounded-xl bg-indigo-700 px-4 py-2 text-center text-sm font-bold text-white transition hover:bg-indigo-800"
+                        >
+                          Continue Reading
+                        </Link>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+              Today&apos;s Research
+            </p>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-3xl font-black text-indigo-700">
+                  {todayOpenedCount}
+                </p>
+
+                <p className="mt-1 text-xs font-bold uppercase tracking-wide text-indigo-500">
+                  Opened Today
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-blue-50 p-4">
+                <p className="text-3xl font-black text-blue-700">
+                  {
+                    workspaceActiveCount
+                  }
+                </p>
+
+                <p className="mt-1 text-xs font-bold uppercase tracking-wide text-blue-500">
+                  Active Queue
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-emerald-50 p-4">
+                <p className="text-3xl font-black text-emerald-700">
+                  {
+                    workspaceCompletedCount
+                  }
+                </p>
+
+                <p className="mt-1 text-xs font-bold uppercase tracking-wide text-emerald-600">
+                  Completed
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-3xl font-black text-slate-800">
+                  {
+                    workspaceStartedCount
+                  }
+                </p>
+
+                <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Ever Started
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {recentlyOpenedArticles.length >
+          0 && (
+          <div className="mt-5 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
+                  Recent Activity
+                </p>
+
+                <h3 className="mt-2 text-xl font-black text-slate-950">
+                  Recently Opened
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkspaceFilter(
+                    "recently_opened"
+                  );
+
+                  setSearch("");
+                }}
+                className="text-sm font-bold text-indigo-700 hover:underline"
+              >
+                View all recent
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {recentlyOpenedArticles.map(
+                ({
+                  article,
+                  workspace,
+                }) => (
+                  <Link
+                    key={
+                      article.id
+                    }
+                    href={`/reader/${article.id}`}
+                    onClick={() =>
+                      addToRecentlyViewed(
+                        article
+                      )
+                    }
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-indigo-300 hover:bg-indigo-50"
+                  >
+                    <p className="line-clamp-2 font-bold leading-5 text-slate-900">
+                      {cleanText(
+                        article.title
+                      ) ||
+                        "Untitled article"}
+                    </p>
+
+                    <p className="mt-3 text-xs text-slate-500">
+                      {formatWorkspaceDate(
+                        workspace
+                          ?.last_opened_at ||
+                          null
+                      )}
+                    </p>
+                  </Link>
+                )
+              )}
+            </div>
+          </div>
+        )}
+      </section>
+
       <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-5 flex flex-wrap gap-2">
+          {[
+            [
+              "all",
+              "All Papers",
+              articles.length,
+            ],
+            [
+              "reading",
+              "Reading",
+              readingCounts.reading,
+            ],
+            [
+              "want_to_read",
+              "Want to Read",
+              readingCounts.want_to_read,
+            ],
+            [
+              "completed",
+              "Completed",
+              readingCounts.completed,
+            ],
+            [
+              "paused",
+              "Paused",
+              readingCounts.paused,
+            ],
+            [
+              "recently_opened",
+              "Recently Opened",
+              totalRecentlyOpenedCount,
+            ],
+            [
+              "open_access",
+              "Open Access",
+              openAccessCount,
+            ],
+          ].map(
+            ([
+              filter,
+              label,
+              count,
+            ]) => (
+              <button
+                key={String(
+                  filter
+                )}
+                type="button"
+                onClick={() =>
+                  setWorkspaceFilter(
+                    filter as WorkspaceFilter
+                  )
+                }
+                className={`rounded-full border px-4 py-2 text-xs font-bold transition ${
+                  workspaceFilter ===
+                  filter
+                    ? "border-indigo-700 bg-indigo-700 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                }`}
+              >
+                {label} ({count})
+              </button>
+            )
+          )}
+        </div>
+
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) =>
+              setSearch(
+                event.target.value
+              )
+            }
             placeholder="Search your library..."
             className="w-full rounded-2xl border border-slate-300 px-5 py-4 outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 lg:max-w-xl"
           />
@@ -574,13 +1880,28 @@ const [creatingCollection, setCreatingCollection] = useState(false);
           <div className="flex flex-col gap-3 sm:flex-row">
             <select
               value={sort}
-              onChange={(e) => setSort(e.target.value)}
+              onChange={(event) =>
+                setSort(
+                  event.target.value
+                )
+              }
               className="rounded-2xl border border-slate-300 px-5 py-4 text-sm font-bold outline-none transition hover:border-indigo-300"
             >
-              <option value="saved">Sort: Recently Saved</option>
-              <option value="cited">Sort: Most Cited</option>
-              <option value="newestYear">Sort: Newest Year</option>
-              <option value="oldestYear">Sort: Oldest Year</option>
+              <option value="saved">
+                Sort: Recently Saved
+              </option>
+
+              <option value="cited">
+                Sort: Most Cited
+              </option>
+
+              <option value="newestYear">
+                Sort: Newest Year
+              </option>
+
+              <option value="oldestYear">
+                Sort: Oldest Year
+              </option>
             </select>
 
             <Link
@@ -591,206 +1912,439 @@ const [creatingCollection, setCreatingCollection] = useState(false);
             </Link>
           </div>
         </div>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs font-semibold text-slate-500">
+            Showing{" "}
+            {filteredArticles.length} of{" "}
+            {articles.length} saved papers
+          </p>
+
+          {workspaceFilter !==
+            "all" && (
+            <button
+              type="button"
+              onClick={() =>
+                setWorkspaceFilter(
+                  "all"
+                )
+              }
+              className="text-xs font-bold text-indigo-700 hover:underline"
+            >
+              Clear workspace filter
+            </button>
+          )}
+        </div>
       </section>
 
       {loading && (
-        <p className="mt-10 text-slate-500">Loading your saved articles...</p>
+        <p className="mt-10 text-slate-500">
+          Loading your saved articles...
+        </p>
       )}
 
-      {!loading && articles.length === 0 && (
-        <section className="mt-10 rounded-[2rem] border border-dashed border-slate-300 bg-white p-14 text-center shadow-sm">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-50 text-3xl font-black text-indigo-700">
-            ☆
-          </div>
+      {!loading &&
+        articles.length === 0 && (
+          <section className="mt-10 rounded-[2rem] border border-dashed border-slate-300 bg-white p-14 text-center shadow-sm">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-50 text-3xl font-black text-indigo-700">
+              ☆
+            </div>
 
-          <h2 className="mt-6 text-2xl font-black text-slate-950">
-            No articles saved yet
-          </h2>
+            <h2 className="mt-6 text-2xl font-black text-slate-950">
+              No articles saved yet
+            </h2>
 
-          <p className="mt-3 text-slate-500">
-            Search for papers and click Save to build your personal library.
-          </p>
+            <p className="mt-3 text-slate-500">
+              Search for papers and click
+              Save to build your personal
+              library.
+            </p>
 
-          <Link
-            href="/search"
-            className="mt-6 inline-flex rounded-2xl bg-indigo-700 px-6 py-3 text-sm font-bold text-white"
-          >
-            Go to Search
-          </Link>
-        </section>
-      )}
-
-      {!loading && filteredArticles.length > 0 && (
-        <section className="mt-10 space-y-5">
-          {filteredArticles.map((article, index) => (
-            <article
-              key={article.id}
-              className="group relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl"
+            <Link
+              href="/search"
+              className="mt-6 inline-flex rounded-2xl bg-indigo-700 px-6 py-3 text-sm font-bold text-white"
             >
-              <div className="absolute left-0 top-0 h-full w-1 bg-indigo-600 opacity-0 transition group-hover:opacity-100" />
+              Go to Search
+            </Link>
+          </section>
+        )}
 
-              <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                <div className="flex gap-5">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-xl font-black text-indigo-700">
-                    {index + 1}
-                  </div>
+      {!loading &&
+        filteredArticles.length >
+          0 && (
+          <section className="mt-10 space-y-5">
+            {filteredArticles.map(
+              (article, index) => {
+                const readingStatus =
+                  workspaceItems[
+                    article.id
+                  ]?.reading_status ||
+                  "want_to_read";
 
-                  <div>
-                    <h2 className="text-2xl font-black leading-snug text-slate-950">
-                      {cleanText(article.title) || "Untitled article"}
-                    </h2>
+                const statusBusy =
+                  workspaceBusyArticleId ===
+                  article.id;
 
-                    <p className="mt-3 text-sm font-medium text-slate-500">
-                      {article.authors || "Authors not available"}
-                    </p>
+                return (
+                  <article
+                    key={article.id}
+                    className="group relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl"
+                  >
+                    <div className="absolute left-0 top-0 h-full w-1 bg-indigo-600 opacity-0 transition group-hover:opacity-100" />
 
-                    <p className="mt-2 text-sm font-bold text-slate-800">
-                      {article.journal || "Unknown source"}
-                    </p>
+                    <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="flex min-w-0 gap-5">
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-xl font-black text-indigo-700">
+                          {index + 1}
+                        </div>
 
-                    {article.biblio && (
-                      <p className="mt-1 text-sm text-slate-500">
-                        {article.biblio}
-                      </p>
-                    )}
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${readingStatusClasses(
+                                readingStatus
+                              )}`}
+                            >
+                              <span>
+                                {readingStatusIcon(
+                                  readingStatus
+                                )}
+                              </span>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {article.year && (
-                        <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
-                          {article.year}
-                        </span>
-                      )}
+                              <span>
+                                {readingStatusLabel(
+                                  readingStatus
+                                )}
+                              </span>
+                            </div>
 
-                      <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700">
-                        {article.citations ?? 0} citations
-                      </span>
+                            <select
+                              value={
+                                readingStatus
+                              }
+                              disabled={
+                                statusBusy
+                              }
+                              onChange={(
+                                event
+                              ) =>
+                                updateReadingStatus(
+                                  article,
+                                  event
+                                    .target
+                                    .value as ReadingStatus
+                                )
+                              }
+                              aria-label={`Reading status for ${
+                                cleanText(
+                                  article.title
+                                ) ||
+                                "article"
+                              }`}
+                              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-600 outline-none transition hover:border-indigo-300 focus:border-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <option value="want_to_read">
+                                Want to Read
+                              </option>
 
-                      {article.doi && (
-                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                          DOI Available
-                        </span>
-                      )}
+                              <option value="reading">
+                                Reading
+                              </option>
 
-                      {article.is_open_access && (
-                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-                          Open Access
-                        </span>
-                      )}
+                              <option value="completed">
+                                Completed
+                              </option>
 
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                        Saved Article
-                      </span>
+                              <option value="paused">
+                                Paused
+                              </option>
+                            </select>
+
+                            {statusBusy && (
+                              <span className="text-xs font-semibold text-slate-400">
+                                Saving...
+                              </span>
+                            )}
+                          </div>
+
+                          <h2 className="mt-4 text-2xl font-black leading-snug text-slate-950">
+                            {cleanText(
+                              article.title
+                            ) ||
+                              "Untitled article"}
+                          </h2>
+
+                          <p className="mt-3 text-sm font-medium text-slate-500">
+                            {article.authors ||
+                              "Authors not available"}
+                          </p>
+
+                          <p className="mt-2 text-sm font-bold text-slate-800">
+                            {article.journal ||
+                              "Unknown source"}
+                          </p>
+
+                          {article.biblio && (
+                            <p className="mt-1 text-sm text-slate-500">
+                              {
+                                article.biblio
+                              }
+                            </p>
+                          )}
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {article.year && (
+                              <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+                                {
+                                  article.year
+                                }
+                              </span>
+                            )}
+
+                            <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-bold text-purple-700">
+                              {article.citations ??
+                                0}{" "}
+                              citations
+                            </span>
+
+                            {article.doi && (
+                              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                                DOI Available
+                              </span>
+                            )}
+
+                            {article.is_open_access && (
+                              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+                                Open Access
+                              </span>
+                            )}
+
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                              Saved Article
+                            </span>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap gap-3">
+                            <Link
+                              href={`/reader/${article.id}`}
+                              onClick={() =>
+                                addToRecentlyViewed(
+                                  article
+                                )
+                              }
+                              className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-indigo-800"
+                            >
+                              Read in App
+                            </Link>
+
+                            <button
+  type="button"
+  onClick={() =>
+    setAbstractArticle(
+      article
+    )
+  }
+  className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 transition hover:bg-sky-100"
+>
+  Abstract
+</button>
+
+                            {article.article_id && (
+                              <a
+                                href={
+                                  article.article_id
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() =>
+                                  addToRecentlyViewed(
+                                    article
+                                  )
+                                }
+                                className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
+                              >
+                                Open Source
+                              </a>
+                            )}
+
+                            {article.doi && (
+                              <a
+                                href={
+                                  article.doi
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() =>
+                                  addToRecentlyViewed(
+                                    article
+                                  )
+                                }
+                                className="rounded-xl border border-emerald-200 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
+                              >
+                                Open DOI
+                              </a>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openCollectionModal(
+                                  article
+                                )
+                              }
+                              className="rounded-xl border border-purple-200 px-4 py-2 text-sm font-bold text-purple-700 transition hover:bg-purple-50"
+                            >
+                              Add to Collection
+                            </button>
+
+                            <button
+  type="button"
+  onClick={() =>
+    setCitationArticle(
+      article
+    )
+  }
+  className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100"
+>
+  Cite
+</button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeArticle(
+                                  article.id
+                                )
+                              }
+                              className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 transition hover:bg-rose-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="hidden w-60 shrink-0 rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-5 lg:block">
+                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-700">
+                          Research Workspace
+                        </p>
+
+                        <div className="mt-4 space-y-3">
+                          <div>
+                            <p className="text-xs text-slate-500">
+                              Reading Status
+                            </p>
+
+                            <p className="font-bold text-slate-800">
+                              {readingStatusLabel(
+                                readingStatus
+                              )}
+                            </p>
+                          </div>
+
+                          {workspaceItems[
+                            article.id
+                          ]
+                            ?.last_opened_at && (
+                            <div>
+                              <p className="text-xs text-slate-500">
+                                Last Opened
+                              </p>
+
+                              <p className="text-sm font-semibold text-slate-700">
+                                {formatWorkspaceDate(
+                                  workspaceItems[
+                                    article.id
+                                  ]
+                                    .last_opened_at
+                                )}
+                              </p>
+                            </div>
+                          )}
+
+                          <div>
+                            <p className="text-xs text-slate-500">
+                              Year
+                            </p>
+
+                            <p className="font-bold">
+                              {article.year ||
+                                "—"}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-slate-500">
+                              Citations
+                            </p>
+
+                            <p className="font-bold">
+                              {article.citations ??
+                                0}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-slate-500">
+                              Journal
+                            </p>
+
+                            <p className="line-clamp-2 text-sm font-semibold">
+                              {article.journal ||
+                                "Unknown"}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-slate-500">
+                              DOI
+                            </p>
+
+                            <p className="text-sm font-semibold">
+                              {article.doi
+                                ? "Available"
+                                : "Not Available"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
+                  </article>
+                );
+              }
+            )}
+          </section>
+        )}
 
-                    <div className="mt-4 flex flex-wrap gap-3">
-  <Link
-  href={`/reader/${article.id}`}
-  onClick={() => addToRecentlyViewed(article)}
-    className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-indigo-800"
-  >
-    Read in App
-  </Link>
+      {!loading &&
+        articles.length > 0 &&
+        filteredArticles.length ===
+          0 && (
+          <section className="mt-10 rounded-3xl border border-slate-200 bg-white p-10 text-center">
+            <h2 className="text-xl font-black">
+              No matching article found
+            </h2>
 
-  {article.article_id && (
-    <a
-  href={article.article_id}
-  target="_blank"
-  rel="noopener noreferrer"
-  onClick={() => addToRecentlyViewed(article)}
-      className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800"
-    >
-      Open Source
-    </a>
-  )}
+            <p className="mt-2 text-slate-500">
+              No saved papers match the
+              current workspace filter or
+              search term.
+            </p>
 
-                   {article.doi && (
-                        <a
-  href={article.doi}
-  target="_blank"
-  rel="noopener noreferrer"
-  onClick={() => addToRecentlyViewed(article)}
-                          className="rounded-xl border border-emerald-200 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
-                        >
-                          Open DOI
-                        </a>
-                      )}
-
-                      <button
-                        onClick={() => openCollectionModal(article)}
-                        className="rounded-xl border border-purple-200 px-4 py-2 text-sm font-bold text-purple-700 transition hover:bg-purple-50"
-                      >
-                        Add to Collection
-                      </button>
-
-                      <button
-                        onClick={() => copyApaCitation(article)}
-                        className="rounded-xl border border-indigo-200 px-4 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
-                      >
-                        Copy APA
-                      </button>
-
-                      <button
-                        onClick={() => removeArticle(article.id)}
-                        className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-600 transition hover:bg-rose-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="hidden w-60 shrink-0 rounded-3xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-5 lg:block">
-                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-700">
-                    Citation Ready
-                  </p>
-
-                  <div className="mt-4 space-y-3">
-                    <div>
-                      <p className="text-xs text-slate-500">Year</p>
-                      <p className="font-bold">{article.year || "—"}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-500">Citations</p>
-                      <p className="font-bold">{article.citations ?? 0}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-500">Journal</p>
-                      <p className="line-clamp-2 text-sm font-semibold">
-                        {article.journal || "Unknown"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-500">Bibliography</p>
-                      <p className="line-clamp-2 text-sm font-semibold">
-                        {article.biblio || "Not available"}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-xs text-slate-500">DOI</p>
-                      <p className="text-sm font-semibold">
-                        {article.doi ? "Available" : "Not Available"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </article>
-          ))}
-        </section>
-      )}
-
-      {!loading && articles.length > 0 && filteredArticles.length === 0 && (
-        <section className="mt-10 rounded-3xl border border-slate-200 bg-white p-10 text-center">
-          <h2 className="text-xl font-black">No matching article found</h2>
-          <p className="mt-2 text-slate-500">
-            Try another keyword in your library search.
-          </p>
-        </section>
-      )}
+            <button
+              type="button"
+              onClick={() => {
+                setWorkspaceFilter(
+                  "all"
+                );
+                setSearch("");
+              }}
+              className="mt-5 rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-800"
+            >
+              Show All Papers
+            </button>
+          </section>
+        )}
     </main>
   );
 }

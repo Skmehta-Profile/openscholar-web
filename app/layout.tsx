@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 import AuthButton from "./components/AuthButton";
+import AdminNavLink from "./components/AdminNavLink";
 
 
 export const metadata: Metadata = {
@@ -44,9 +45,11 @@ export default function RootLayout({
               <Link href="/library">Library</Link>
               <Link href="/collections">Collections</Link>
               <Link href="/alerts">Alerts</Link>
-              <Link href="/about">About</Link>
+<Link href="/about">About</Link>
 
-              <AuthButton />
+<AdminNavLink />
+
+<AuthButton />
             </div>
           </div>
         </nav>

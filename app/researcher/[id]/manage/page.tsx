@@ -5,6 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
+import AddPublicationDialog, {
+  type AddedPublication as SharedAddedPublication,
+} from "@/app/components/AddPublicationDialog";
 
 type ManagerTab =
   | "all"
@@ -253,6 +256,37 @@ function publicationTypeLabel(value: string) {
     );
 }
 
+function verificationSourceLabel(
+  value: string | null | undefined
+) {
+  if (!value) {
+    return "Manual";
+  }
+
+  switch (value.toLowerCase()) {
+    case "crossref":
+      return "Crossref";
+
+    case "openalex":
+      return "OpenAlex";
+
+    case "doi":
+      return "DOI";
+
+    case "orcid":
+      return "ORCID";
+
+    case "administrator":
+      return "Administrator";
+
+    case "manual":
+      return "Manual";
+
+    default:
+      return publicationTypeLabel(value);
+  }
+}
+
 export default function PublicationManagerPage() {
   const params = useParams<{ id: string }>();
 
@@ -301,6 +335,89 @@ export default function PublicationManagerPage() {
   const [sort, setSort] =
     useState<ManagerSort>("newest");
 
+  const [busyRecordId, setBusyRecordId] =
+  useState<string | null>(null);
+
+const [
+  publicationToHide,
+  setPublicationToHide,
+] = useState<ManagerPublication | null>(
+  null
+);
+
+const [
+  curatedPublicationToRemove,
+  setCuratedPublicationToRemove,
+] = useState<ManagerPublication | null>(
+  null
+);
+
+const [
+  curatedPublicationToEdit,
+  setCuratedPublicationToEdit,
+] = useState<ManagerPublication | null>(
+  null
+);
+
+const [
+  showAddPublicationDialog,
+  setShowAddPublicationDialog,
+] = useState(false);
+
+const [editTitle, setEditTitle] =
+  useState("");
+
+const [editAuthors, setEditAuthors] =
+  useState("");
+
+const [editJournal, setEditJournal] =
+  useState("");
+
+const [editYear, setEditYear] =
+  useState("");
+
+const [editPublicationDate, setEditPublicationDate] =
+  useState("");
+
+const [editType, setEditType] =
+  useState("article");
+
+const [editDoi, setEditDoi] =
+  useState("");
+
+const [editSourceUrl, setEditSourceUrl] =
+  useState("");
+
+const [editFullTextUrl, setEditFullTextUrl] =
+  useState("");
+
+const [editOpenAccess, setEditOpenAccess] =
+  useState(false);
+
+const [editNotes, setEditNotes] =
+  useState("");
+
+const [editSubmitting, setEditSubmitting] =
+  useState(false);
+
+const [hideReason, setHideReason] =
+  useState<
+    | "different_author"
+    | "incorrect_assignment"
+    | "duplicate"
+    | "not_my_publication"
+    | "other"
+  >("not_my_publication");
+
+const [hideReasonNote, setHideReasonNote] =
+  useState("");
+
+const [managerMessage, setManagerMessage] =
+  useState("");
+
+const [managerError, setManagerError] =
+  useState("");  
+
   useEffect(() => {
     let mounted = true;
 
@@ -330,6 +447,7 @@ export default function PublicationManagerPage() {
         }
 
         const currentUser = authData.user;
+        console.log("Current user:", currentUser.id);
 
         if (!mounted) {
           return;
@@ -529,6 +647,26 @@ export default function PublicationManagerPage() {
       () => additions.map(mapAddedPublication),
       [additions]
     );
+
+  const openAlexDois = useMemo(
+  () =>
+    openAlexPublications
+      .map((publication) =>
+        normalizeDoi(publication.doi)
+      )
+      .filter(Boolean),
+  [openAlexPublications]
+);
+
+const addedDois = useMemo(
+  () =>
+    additions
+      .map((publication) =>
+        normalizeDoi(publication.doi)
+      )
+      .filter(Boolean),
+  [additions]
+);  
 
   const verifiedCuratedPublications =
     useMemo(
@@ -748,6 +886,134 @@ export default function PublicationManagerPage() {
     [allVisiblePublications]
   );
 
+  const pendingAdditionCount = useMemo(
+  () =>
+    additions.filter(
+      (publication) =>
+        publication.verification_status ===
+        "pending"
+    ).length,
+  [additions]
+);
+
+const verifiedAdditionCount = useMemo(
+  () =>
+    additions.filter(
+      (publication) =>
+        publication.verification_status ===
+        "verified"
+    ).length,
+  [additions]
+);
+
+const rejectedAdditionCount = useMemo(
+  () =>
+    additions.filter(
+      (publication) =>
+        publication.verification_status ===
+        "rejected"
+    ).length,
+  [additions]
+);
+
+const reviewedAdditionCount =
+  verifiedAdditionCount +
+  rejectedAdditionCount;
+
+const verificationProgress =
+  additions.length > 0
+    ? Math.round(
+        (reviewedAdditionCount /
+          additions.length) *
+          100
+      )
+    : 0;
+
+  function showManagerMessage(
+  message: string
+) {
+  setManagerMessage(message);
+  setManagerError("");
+
+  window.setTimeout(() => {
+    setManagerMessage("");
+  }, 3500);
+}
+
+function showManagerError(
+  message: string
+) {
+  setManagerError(message);
+  setManagerMessage("");
+
+  window.setTimeout(() => {
+    setManagerError("");
+  }, 4500);
+}
+
+function openCuratedEditDialog(
+  publication: ManagerPublication
+) {
+  if (
+    publication.managerSource !== "crossref" ||
+    !publication.additionId
+  ) {
+    return;
+  }
+
+  const original = additions.find(
+    (item) =>
+      item.id === publication.additionId
+  );
+
+  if (!original) {
+    showManagerError(
+      "Unable to locate the curated publication record."
+    );
+    return;
+  }
+
+  setCuratedPublicationToEdit(publication);
+
+  setEditTitle(original.title || "");
+  setEditAuthors(original.authors || "");
+  setEditJournal(original.journal || "");
+
+  setEditYear(
+    original.publication_year
+      ? String(original.publication_year)
+      : ""
+  );
+
+  setEditPublicationDate(
+    original.publication_date || ""
+  );
+
+  setEditType(
+    original.publication_type || "article"
+  );
+
+  setEditDoi(
+    normalizeDoi(original.doi)
+  );
+
+  setEditSourceUrl(
+    original.source_url || ""
+  );
+
+  setEditFullTextUrl(
+    original.full_text_url || ""
+  );
+
+  setEditOpenAccess(
+    Boolean(original.is_open_access)
+  );
+
+  setEditNotes(
+    original.notes || ""
+  );
+}
+
   function clearFilters() {
     setSearchQuery("");
     setSourceFilter("all");
@@ -773,6 +1039,374 @@ export default function PublicationManagerPage() {
     );
   }
 
+  async function hideOpenAlexPublication() {
+  if (
+    !user ||
+    !publicationToHide ||
+    publicationToHide.managerSource !==
+      "openalex"
+  ) {
+    return;
+  }
+
+  setBusyRecordId(publicationToHide.id);
+
+  try {
+    const payload = {
+      user_id: user.id,
+      openalex_author_id: researcherId,
+      openalex_work_id:
+        publicationToHide.id.toUpperCase(),
+      publication_title: stripHtml(
+        publicationToHide.title
+      ),
+      reason: hideReason,
+      reason_note:
+        hideReasonNote.trim() || null,
+    };
+
+    const {
+      data: insertedExclusion,
+      error: hideError,
+    } = await supabase
+      .from(
+        "researcher_publication_exclusions"
+      )
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (hideError) {
+      throw hideError;
+    }
+
+    setExclusions((current) => [
+      insertedExclusion as PublicationExclusion,
+      ...current,
+    ]);
+
+    setPublicationToHide(null);
+    setHideReason("not_my_publication");
+    setHideReasonNote("");
+
+    showManagerMessage(
+      "Publication hidden from the public profile."
+    );
+  } catch (hideError) {
+    console.error(
+      "Unable to hide publication:",
+      hideError
+    );
+
+    const message =
+      hideError &&
+      typeof hideError === "object" &&
+      "message" in hideError
+        ? String(hideError.message)
+        : "Unable to hide this publication.";
+
+    showManagerError(message);
+  } finally {
+    setBusyRecordId(null);
+  }
+}
+
+async function restoreHiddenPublication(
+  exclusion: PublicationExclusion
+) {
+  const confirmed = window.confirm(
+    "Restore this publication to the public profile?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  setBusyRecordId(exclusion.id);
+
+  try {
+    const { error: restoreError } =
+      await supabase
+        .from(
+          "researcher_publication_exclusions"
+        )
+        .delete()
+        .eq("id", exclusion.id);
+
+    if (restoreError) {
+      throw restoreError;
+    }
+
+    setExclusions((current) =>
+      current.filter(
+        (item) =>
+          item.id !== exclusion.id
+      )
+    );
+
+    showManagerMessage(
+      "Publication restored to the public profile."
+    );
+  } catch (restoreError) {
+    console.error(
+      "Unable to restore publication:",
+      restoreError
+    );
+
+    showManagerError(
+      "Unable to restore this publication."
+    );
+  } finally {
+    setBusyRecordId(null);
+  }
+}
+
+async function removeCuratedPublication() {
+  if (
+    !curatedPublicationToRemove ||
+    !curatedPublicationToRemove.additionId
+  ) {
+    return;
+  }
+
+  setBusyRecordId(
+    curatedPublicationToRemove.id
+  );
+
+  try {
+    const { error: removeError } =
+      await supabase
+        .from(
+          "researcher_publication_additions"
+        )
+        .delete()
+        .eq(
+          "id",
+          curatedPublicationToRemove.additionId
+        );
+
+    if (removeError) {
+      throw removeError;
+    }
+
+    setAdditions((current) =>
+      current.filter(
+        (item) =>
+          item.id !==
+          curatedPublicationToRemove.additionId
+      )
+    );
+
+    setCuratedPublicationToRemove(null);
+
+    showManagerMessage(
+      "Curated publication removed from the profile."
+    );
+  } catch (removeError) {
+    console.error(
+      "Unable to remove curated publication:",
+      removeError
+    );
+
+    const message =
+      removeError &&
+      typeof removeError === "object" &&
+      "message" in removeError
+        ? String(removeError.message)
+        : "Unable to remove this publication.";
+
+    showManagerError(message);
+  } finally {
+    setBusyRecordId(null);
+  }
+}
+
+async function updateCuratedPublication() {
+  if (
+    !curatedPublicationToEdit ||
+    !curatedPublicationToEdit.additionId
+  ) {
+    return;
+  }
+
+  const cleanTitle =
+    editTitle.trim();
+
+  const cleanAuthors =
+    editAuthors.trim();
+
+  if (!cleanTitle) {
+    showManagerError(
+      "Publication title is required."
+    );
+    return;
+  }
+
+  if (!cleanAuthors) {
+    showManagerError(
+      "Authors are required."
+    );
+    return;
+  }
+
+  const parsedYear =
+    editYear.trim()
+      ? Number(editYear)
+      : null;
+
+  if (
+    parsedYear !== null &&
+    (
+      !Number.isInteger(parsedYear) ||
+      parsedYear < 1000 ||
+      parsedYear > 2200
+    )
+  ) {
+    showManagerError(
+      "Enter a valid publication year."
+    );
+    return;
+  }
+
+  setEditSubmitting(true);
+
+  try {
+    const original = additions.find(
+      (item) =>
+        item.id ===
+        curatedPublicationToEdit.additionId
+    );
+
+    if (!original) {
+      throw new Error(
+        "Original curated publication was not found."
+      );
+    }
+
+    const cleanDoi =
+      normalizeDoi(editDoi);
+
+    const metadataChanged =
+      cleanTitle !== original.title ||
+      cleanAuthors !== original.authors ||
+      editJournal.trim() !==
+        (original.journal || "") ||
+      parsedYear !==
+        original.publication_year ||
+      editPublicationDate.trim() !==
+        (original.publication_date || "") ||
+      editType !==
+        (original.publication_type ||
+          "article") ||
+      cleanDoi !==
+        normalizeDoi(original.doi) ||
+      editSourceUrl.trim() !==
+        (original.source_url || "") ||
+      editFullTextUrl.trim() !==
+        (original.full_text_url || "") ||
+      editOpenAccess !==
+        Boolean(original.is_open_access);
+
+    const nextVerificationStatus =
+      original.verification_status ===
+        "verified" &&
+      metadataChanged
+        ? "pending"
+        : original.verification_status;
+
+    const updatePayload = {
+      title: cleanTitle,
+      authors: cleanAuthors,
+
+      journal:
+        editJournal.trim() || null,
+
+      publication_year:
+        parsedYear,
+
+      publication_date:
+        editPublicationDate.trim() ||
+        null,
+
+      publication_type:
+        editType || "article",
+
+      doi:
+        cleanDoi || null,
+
+      source_url:
+        editSourceUrl.trim() || null,
+
+      full_text_url:
+        editFullTextUrl.trim() || null,
+
+      is_open_access:
+        editOpenAccess,
+
+      notes:
+        editNotes.trim() || null,
+
+      verification_status:
+        nextVerificationStatus,
+
+      updated_at:
+        new Date().toISOString(),
+    };
+
+    const {
+      data: updatedRecord,
+      error: updateError,
+    } = await supabase
+      .from(
+        "researcher_publication_additions"
+      )
+      .update(updatePayload)
+      .eq(
+        "id",
+        curatedPublicationToEdit.additionId
+      )
+      .select("*")
+      .single();
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    setAdditions((current) =>
+      current.map((item) =>
+        item.id === updatedRecord.id
+          ? (updatedRecord as AddedPublication)
+          : item
+      )
+    );
+
+    setCuratedPublicationToEdit(null);
+
+    showManagerMessage(
+      nextVerificationStatus === "pending" &&
+        original.verification_status ===
+          "verified"
+        ? "Publication updated and returned to pending verification."
+        : "Curated publication updated successfully."
+    );
+  } catch (updateError) {
+    console.error(
+      "Unable to update curated publication:",
+      updateError
+    );
+
+    const message =
+      updateError &&
+      typeof updateError === "object" &&
+      "message" in updateError
+        ? String(updateError.message)
+        : "Unable to update this publication.";
+
+    showManagerError(message);
+  } finally {
+    setEditSubmitting(false);
+  }
+}
   if (loading) {
     return (
       <main className="mx-auto max-w-7xl px-6 py-16">
@@ -834,6 +1468,17 @@ export default function PublicationManagerPage() {
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-10">
+    {managerMessage && (
+  <div className="fixed bottom-6 left-1/2 z-[150] -translate-x-1/2 rounded-2xl border border-emerald-200 bg-emerald-50 px-6 py-4 text-sm font-bold text-emerald-800 shadow-2xl">
+    {managerMessage}
+  </div>
+)}
+
+{managerError && (
+  <div className="fixed bottom-6 left-1/2 z-[150] -translate-x-1/2 rounded-2xl border border-rose-200 bg-rose-50 px-6 py-4 text-sm font-bold text-rose-800 shadow-2xl">
+    {managerError}
+  </div>
+)}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Link
           href={`/researcher/${researcherId}`}
@@ -868,37 +1513,61 @@ export default function PublicationManagerPage() {
               </p>
             </div>
 
-            <Link
-              href={`/researcher/${researcherId}`}
-              className="inline-flex w-fit rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
-            >
-              View Public Profile
-            </Link>
+            <div className="flex flex-wrap gap-3">
+  <button
+    type="button"
+    onClick={() =>
+      setShowAddPublicationDialog(true)
+    }
+    className="inline-flex w-fit items-center rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+  >
+    + Add Publication
+  </button>
+
+  <Link
+    href={`/researcher/${researcherId}`}
+    className="inline-flex w-fit rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+  >
+    View Public Profile
+  </Link>
+</div>
           </div>
 
-          <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-5">
-            {[
-              [
-                "Total Visible",
-                allVisiblePublications.length,
-              ],
-              [
-                "OpenAlex",
-                openAlexPublications.length,
-              ],
-              [
-                "Curated",
-                curatedPublications.length,
-              ],
-              [
-                "Hidden",
-                exclusions.length,
-              ],
-              [
-                "Open Access",
-                openAccessCount,
-              ],
-            ].map(([label, value]) => (
+          <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+  {[
+    [
+      "Total Visible",
+      allVisiblePublications.length,
+    ],
+    [
+      "OpenAlex",
+      openAlexPublications.length,
+    ],
+    [
+      "Curated",
+      curatedPublications.length,
+    ],
+    [
+      "Hidden",
+      exclusions.length,
+    ],
+    [
+      "Verified",
+      verifiedAdditionCount,
+    ],
+    [
+      "Pending Review",
+      pendingAdditionCount,
+    ],
+    [
+      "Rejected",
+      rejectedAdditionCount,
+    ],
+    [
+      "Open Access",
+      openAccessCount,
+    ],
+  ].map(([label, value]) => (
               <div
                 key={String(label)}
                 className="rounded-2xl border border-white/70 bg-white/90 p-5 shadow-sm"
@@ -915,6 +1584,93 @@ export default function PublicationManagerPage() {
               </div>
             ))}
           </div>
+          {additions.length > 0 && (
+  <div className="mt-6 rounded-3xl border border-indigo-100 bg-white/90 p-6 shadow-sm">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+          Curated Record Verification
+        </p>
+
+        <h2 className="mt-2 text-xl font-black text-slate-950">
+          Verification Progress
+        </h2>
+
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          {reviewedAdditionCount} of{" "}
+          {additions.length} researcher-added{" "}
+          {additions.length === 1
+            ? "publication has"
+            : "publications have"}{" "}
+          completed review.
+        </p>
+      </div>
+
+      <div className="shrink-0 text-left sm:text-right">
+        <p className="text-3xl font-black text-indigo-700">
+          {verificationProgress}%
+        </p>
+
+        <p className="mt-1 text-xs font-semibold text-slate-400">
+          reviewed
+        </p>
+      </div>
+    </div>
+
+    <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+      <div
+        className="h-full rounded-full bg-indigo-600 transition-all"
+        style={{
+          width: `${verificationProgress}%`,
+        }}
+      />
+    </div>
+
+    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+      <div className="rounded-2xl bg-emerald-50 px-4 py-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">
+          Verified
+        </p>
+
+        <p className="mt-2 text-2xl font-black text-emerald-900">
+          {verifiedAdditionCount}
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-amber-50 px-4 py-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-amber-700">
+          Pending
+        </p>
+
+        <p className="mt-2 text-2xl font-black text-amber-900">
+          {pendingAdditionCount}
+        </p>
+      </div>
+
+      <div className="rounded-2xl bg-rose-50 px-4 py-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-rose-700">
+          Rejected
+        </p>
+
+        <p className="mt-2 text-2xl font-black text-rose-900">
+          {rejectedAdditionCount}
+        </p>
+      </div>
+    </div>
+  </div>
+)}
+{additions.length > 0 && (
+  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-xs leading-6 text-slate-600">
+    <strong className="text-slate-800">
+      Verification status:
+    </strong>{" "}
+    Verified records can become part of the
+    trusted public profile. Pending records are
+    awaiting review. Rejected records remain in
+    Publication Manager so they can be corrected
+    or removed.
+  </div>
+)}
         </div>
       </section>
 
@@ -1153,12 +1909,22 @@ export default function PublicationManagerPage() {
                     </p>
                   </div>
 
-                  <Link
-                    href={`/researcher/${researcherId}`}
-                    className="shrink-0 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-700"
-                  >
-                    Manage on Profile
-                  </Link>
+                  <button
+  type="button"
+  onClick={() =>
+    restoreHiddenPublication(
+      exclusion
+    )
+  }
+  disabled={
+    busyRecordId === exclusion.id
+  }
+  className="shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+>
+  {busyRecordId === exclusion.id
+    ? "Restoring..."
+    : "Restore"}
+</button>
                 </div>
               </article>
             ))
@@ -1239,22 +2005,26 @@ export default function PublicationManagerPage() {
                             </span>
 
                             {publication.additionStatus && (
-                              <span
-                                className={`rounded-full px-3 py-1 text-xs font-bold capitalize ${
-                                  publication.additionStatus ===
-                                  "verified"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : publication.additionStatus ===
-                                      "pending"
-                                    ? "bg-amber-100 text-amber-800"
-                                    : "bg-rose-100 text-rose-700"
-                                }`}
-                              >
-                                {
-                                  publication.additionStatus
-                                }
-                              </span>
-                            )}
+  <span
+    className={`rounded-full px-3 py-1 text-xs font-bold ${
+      publication.additionStatus ===
+      "verified"
+        ? "bg-emerald-100 text-emerald-700"
+        : publication.additionStatus ===
+          "pending"
+        ? "bg-amber-100 text-amber-800"
+        : "bg-rose-100 text-rose-700"
+    }`}
+  >
+    {publication.additionStatus ===
+    "verified"
+      ? "Verified"
+      : publication.additionStatus ===
+        "pending"
+      ? "Pending Review"
+      : "Rejected"}
+  </span>
+)}
 
                             {publication.isOpenAccess && (
                               <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -1288,6 +2058,42 @@ export default function PublicationManagerPage() {
                               DOI: {doi}
                             </p>
                           )}
+                          {publication.managerSource ===
+  "crossref" && (
+  <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-slate-500">
+    <span>
+      Added via{" "}
+      <strong className="text-slate-700">
+        {verificationSourceLabel(
+          publication.verificationSource
+        )}
+      </strong>
+    </span>
+
+    {publication.addedAt && (
+      <span>
+        Submitted{" "}
+        <strong className="text-slate-700">
+          {formatDate(
+            publication.addedAt
+          )}
+        </strong>
+      </span>
+    )}
+  </div>
+)}
+{publication.managerSource ===
+  "crossref" &&
+  publication.additionStatus ===
+    "pending" && (
+    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
+      This researcher-added publication is
+      awaiting verification. It is available
+      in Publication Manager but is not yet
+      included in the verified public
+      publication record.
+    </div>
+  )}
                         </div>
 
                         <div className="flex shrink-0 flex-wrap gap-2 lg:max-w-72 lg:justify-end">
@@ -1318,12 +2124,63 @@ export default function PublicationManagerPage() {
                             </button>
                           )}
 
-                          <Link
-                            href={`/researcher/${researcherId}`}
-                            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700"
-                          >
-                            Manage
-                          </Link>
+                          {publication.managerSource ===
+"openalex" ? (
+  <button
+    type="button"
+    onClick={() => {
+      setHideReason(
+        "not_my_publication"
+      );
+      setHideReasonNote("");
+      setPublicationToHide(
+        publication
+      );
+    }}
+    disabled={
+      busyRecordId === publication.id
+    }
+    className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-bold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {busyRecordId === publication.id
+      ? "Hiding..."
+      : "Hide"}
+  </button>
+) : (
+  <>
+    <button
+      type="button"
+      onClick={() =>
+        openCuratedEditDialog(
+          publication
+        )
+      }
+      disabled={
+        busyRecordId === publication.id
+      }
+      className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      Edit
+    </button>
+
+    <button
+      type="button"
+      onClick={() =>
+        setCuratedPublicationToRemove(
+          publication
+        )
+      }
+      disabled={
+        busyRecordId === publication.id
+      }
+      className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-bold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {busyRecordId === publication.id
+        ? "Removing..."
+        : "Remove"}
+    </button>
+  </>
+)}
                         </div>
                       </div>
                     </article>
@@ -1334,6 +2191,643 @@ export default function PublicationManagerPage() {
           )}
         </section>
       )}
+      {publicationToHide && (
+  <div
+    className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 px-5 py-8"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="manager-hide-title"
+    onClick={() =>
+      setPublicationToHide(null)
+    }
+  >
+    <div
+      className="w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl"
+      onClick={(event) =>
+        event.stopPropagation()
+      }
+    >
+      <div className="flex items-start justify-between gap-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-rose-700">
+            Publication Curation
+          </p>
+
+          <h2
+            id="manager-hide-title"
+            className="mt-2 text-2xl font-black text-slate-950"
+          >
+            Hide Publication
+          </h2>
+
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            This hides the record from the
+            OpenScholar public profile without
+            modifying OpenAlex.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setPublicationToHide(null)
+          }
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-xl font-bold text-slate-500"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="mt-6 rounded-2xl bg-slate-50 p-5">
+        <p className="font-black leading-6 text-slate-950">
+          {stripHtml(
+            publicationToHide.title
+          )}
+        </p>
+
+        <p className="mt-2 text-sm text-slate-500">
+          {publicationToHide.journal}
+          {publicationToHide.year
+            ? ` · ${publicationToHide.year}`
+            : ""}
+        </p>
+      </div>
+
+      <div className="mt-5">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Reason
+        </label>
+
+        <select
+          value={hideReason}
+          onChange={(event) =>
+            setHideReason(
+              event.target.value as
+                | "different_author"
+                | "incorrect_assignment"
+                | "duplicate"
+                | "not_my_publication"
+                | "other"
+            )
+          }
+          className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+        >
+          <option value="not_my_publication">
+            This publication is not mine
+          </option>
+
+          <option value="different_author">
+            Different author with a similar name
+          </option>
+
+          <option value="incorrect_assignment">
+            Incorrect database assignment
+          </option>
+
+          <option value="duplicate">
+            Duplicate publication
+          </option>
+
+          <option value="other">
+            Other reason
+          </option>
+        </select>
+      </div>
+
+      <div className="mt-5">
+        <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Additional note
+        </label>
+
+        <textarea
+          value={hideReasonNote}
+          onChange={(event) =>
+            setHideReasonNote(
+              event.target.value
+            )
+          }
+          rows={4}
+          maxLength={500}
+          placeholder="Optional explanation..."
+          className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+        />
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() =>
+            setPublicationToHide(null)
+          }
+          disabled={
+            busyRecordId ===
+            publicationToHide.id
+          }
+          className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={
+            hideOpenAlexPublication
+          }
+          disabled={
+            busyRecordId ===
+            publicationToHide.id
+          }
+          className="rounded-xl bg-rose-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-700 disabled:opacity-50"
+        >
+          {busyRecordId ===
+          publicationToHide.id
+            ? "Hiding..."
+            : "Hide Publication"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{curatedPublicationToRemove && (
+  <div
+    className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 px-5 py-8"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="manager-remove-title"
+    onClick={() =>
+      setCuratedPublicationToRemove(
+        null
+      )
+    }
+  >
+    <div
+      className="w-full max-w-xl rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl"
+      onClick={(event) =>
+        event.stopPropagation()
+      }
+    >
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-rose-700">
+        Curated Publication
+      </p>
+
+      <h2
+        id="manager-remove-title"
+        className="mt-2 text-2xl font-black text-slate-950"
+      >
+        Remove Curated Record
+      </h2>
+
+      <p className="mt-3 text-sm leading-6 text-slate-500">
+        This permanently removes the
+        researcher-added record from OpenScholar.
+        The Crossref or DOI source record is not
+        modified.
+      </p>
+
+      <div className="mt-6 rounded-2xl bg-slate-50 p-5">
+        <p className="font-black leading-6 text-slate-950">
+          {stripHtml(
+            curatedPublicationToRemove.title
+          )}
+        </p>
+
+        <p className="mt-2 text-sm text-slate-500">
+          {
+            curatedPublicationToRemove.journal
+          }
+          {curatedPublicationToRemove.year
+            ? ` · ${curatedPublicationToRemove.year}`
+            : ""}
+        </p>
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() =>
+            setCuratedPublicationToRemove(
+              null
+            )
+          }
+          disabled={
+            busyRecordId ===
+            curatedPublicationToRemove.id
+          }
+          className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={
+            removeCuratedPublication
+          }
+          disabled={
+            busyRecordId ===
+            curatedPublicationToRemove.id
+          }
+          className="rounded-xl bg-rose-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-700 disabled:opacity-50"
+        >
+          {busyRecordId ===
+          curatedPublicationToRemove.id
+            ? "Removing..."
+            : "Remove Record"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+{curatedPublicationToEdit && (
+  <div
+    className="fixed inset-0 z-[130] flex items-center justify-center overflow-y-auto bg-slate-950/55 px-5 py-8"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="manager-edit-title"
+    onClick={() => {
+      if (!editSubmitting) {
+        setCuratedPublicationToEdit(
+          null
+        );
+      }
+    }}
+  >
+    <div
+      className="my-auto w-full max-w-3xl rounded-[2rem] border border-slate-200 bg-white p-7 shadow-2xl"
+      onClick={(event) =>
+        event.stopPropagation()
+      }
+    >
+      <div className="flex items-start justify-between gap-5">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-700">
+            Curated Publication
+          </p>
+
+          <h2
+            id="manager-edit-title"
+            className="mt-2 text-2xl font-black text-slate-950"
+          >
+            Edit Publication
+          </h2>
+
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            Correct the metadata for this
+            researcher-added publication.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() =>
+            setCuratedPublicationToEdit(
+              null
+            )
+          }
+          disabled={editSubmitting}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 text-xl font-bold text-slate-500 disabled:opacity-50"
+          aria-label="Close edit publication"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="mt-7 grid gap-5">
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Publication Title *
+          </label>
+
+          <input
+            type="text"
+            value={editTitle}
+            onChange={(event) =>
+              setEditTitle(
+                event.target.value
+              )
+            }
+            disabled={editSubmitting}
+            placeholder="Publication title"
+            className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Authors *
+          </label>
+
+          <textarea
+            value={editAuthors}
+            onChange={(event) =>
+              setEditAuthors(
+                event.target.value
+              )
+            }
+            disabled={editSubmitting}
+            rows={3}
+            placeholder="Author names"
+            className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+          />
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Journal / Source
+            </label>
+
+            <input
+              type="text"
+              value={editJournal}
+              onChange={(event) =>
+                setEditJournal(
+                  event.target.value
+                )
+              }
+              disabled={editSubmitting}
+              placeholder="Journal or source title"
+              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Publication Type
+            </label>
+
+            <select
+              value={editType}
+              onChange={(event) =>
+                setEditType(
+                  event.target.value
+                )
+              }
+              disabled={editSubmitting}
+              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+            >
+              <option value="article">
+                Article
+              </option>
+
+              <option value="review">
+                Review
+              </option>
+
+              <option value="book">
+                Book
+              </option>
+
+              <option value="book-chapter">
+                Book Chapter
+              </option>
+
+              <option value="conference-paper">
+                Conference Paper
+              </option>
+
+              <option value="editorial">
+                Editorial
+              </option>
+
+              <option value="letter">
+                Letter
+              </option>
+
+              <option value="preprint">
+                Preprint
+              </option>
+
+              <option value="other">
+                Other
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Publication Year
+            </label>
+
+            <input
+              type="number"
+              min="1000"
+              max="2200"
+              value={editYear}
+              onChange={(event) =>
+                setEditYear(
+                  event.target.value
+                )
+              }
+              disabled={editSubmitting}
+              placeholder="e.g. 2026"
+              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Publication Date
+            </label>
+
+            <input
+              type="date"
+              value={editPublicationDate}
+              onChange={(event) =>
+                setEditPublicationDate(
+                  event.target.value
+                )
+              }
+              disabled={editSubmitting}
+              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            DOI
+          </label>
+
+          <div className="mt-2 flex overflow-hidden rounded-2xl border border-slate-300 focus-within:border-indigo-600 focus-within:ring-4 focus-within:ring-indigo-100">
+            <span className="flex items-center bg-slate-50 px-4 text-sm font-semibold text-slate-500">
+              https://doi.org/
+            </span>
+
+            <input
+              type="text"
+              value={editDoi}
+              onChange={(event) =>
+                setEditDoi(
+                  event.target.value
+                )
+              }
+              disabled={editSubmitting}
+              placeholder="10.xxxx/xxxxx"
+              className="min-w-0 flex-1 border-0 px-4 py-3 text-sm outline-none disabled:bg-slate-50"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Source URL
+          </label>
+
+          <input
+            type="url"
+            value={editSourceUrl}
+            onChange={(event) =>
+              setEditSourceUrl(
+                event.target.value
+              )
+            }
+            disabled={editSubmitting}
+            placeholder="https://..."
+            className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Full Text URL
+          </label>
+
+          <input
+            type="url"
+            value={editFullTextUrl}
+            onChange={(event) =>
+              setEditFullTextUrl(
+                event.target.value
+              )
+            }
+            disabled={editSubmitting}
+            placeholder="https://..."
+            className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+          />
+        </div>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+          <input
+            type="checkbox"
+            checked={editOpenAccess}
+            onChange={(event) =>
+              setEditOpenAccess(
+                event.target.checked
+              )
+            }
+            disabled={editSubmitting}
+            className="mt-1"
+          />
+
+          <span>
+            <span className="block text-sm font-bold text-emerald-800">
+              Open Access
+            </span>
+
+            <span className="mt-1 block text-xs leading-5 text-emerald-700">
+              Mark this publication as
+              openly accessible when a
+              legitimate open-access version
+              is available.
+            </span>
+          </span>
+        </label>
+
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            Notes
+          </label>
+
+          <textarea
+            value={editNotes}
+            onChange={(event) =>
+              setEditNotes(
+                event.target.value
+              )
+            }
+            disabled={editSubmitting}
+            rows={4}
+            maxLength={1000}
+            placeholder="Optional notes about this publication..."
+            className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50"
+          />
+        </div>
+      </div>
+
+      {curatedPublicationToEdit.additionStatus ===
+        "verified" && (
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-bold text-amber-900">
+            Verification notice
+          </p>
+
+          <p className="mt-1 text-sm leading-6 text-amber-700">
+            If verified publication metadata
+            is changed, the record will return
+            to pending verification.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-7 grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() =>
+            setCuratedPublicationToEdit(
+              null
+            )
+          }
+          disabled={editSubmitting}
+          className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={
+            updateCuratedPublication
+          }
+          disabled={editSubmitting}
+          className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {editSubmitting
+            ? "Saving Changes..."
+            : "Save Changes"}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+{showAddPublicationDialog && user && (
+  <AddPublicationDialog
+    open={showAddPublicationDialog}
+    user={user}
+    researcherId={researcherId}
+    existingOpenAlexDois={openAlexDois}
+    existingAddedDois={addedDois}
+    onClose={() =>
+      setShowAddPublicationDialog(false)
+    }
+    onSaved={(publication) => {
+      setAdditions((current) => [
+        publication as SharedAddedPublication as AddedPublication,
+        ...current,
+      ]);
+
+      setActiveTab("curated");
+
+      showManagerMessage(
+        "Publication added and submitted for verification."
+      );
+    }}
+  />
+)}
     </main>
   );
 }
