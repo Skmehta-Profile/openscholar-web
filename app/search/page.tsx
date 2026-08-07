@@ -217,6 +217,60 @@ useEffect(() => {
   }
 }, []);
 
+useEffect(() => {
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  const initialQuery =
+    params.get("q")?.trim() || "";
+
+  if (initialQuery.length < 2) {
+    return;
+  }
+
+  const initialSearch: SearchHistoryItem = {
+    id: crypto.randomUUID(),
+
+    query: initialQuery,
+
+    searchMode: "keyword",
+
+    workType: "any",
+
+    institution: "",
+
+    sort: "relevance",
+
+    year: "any",
+
+    openAccessOnly: false,
+
+    searchedAt:
+      new Date().toISOString(),
+  };
+
+  setQuery(initialQuery);
+
+  setSearchMode("keyword");
+
+  setWorkType("any");
+
+  setInstitution("");
+
+  setSort("relevance");
+
+  setYear("any");
+
+  setOpenAccessOnly(false);
+
+  searchPapers(
+    1,
+    initialSearch
+  );
+}, []);
+
 function saveSearchToHistory() {
   const cleanQuery = query.trim();
 
