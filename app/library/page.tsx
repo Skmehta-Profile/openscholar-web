@@ -9,6 +9,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import CitationDialog from "@/app/components/CitationDialog";
 import AbstractDialog from "@/app/components/AbstractDialog";
+import PaperNotesDialog from "@/app/components/PaperNotesDialog";
 
 type SavedArticle = {
   id: string;
@@ -281,6 +282,13 @@ export default function LibraryPage() {
 const [
   abstractArticle,
   setAbstractArticle,
+] = useState<SavedArticle | null>(
+  null
+);
+
+const [
+  notesArticle,
+  setNotesArticle,
 ] = useState<SavedArticle | null>(
   null
 );
@@ -1237,6 +1245,14 @@ const [
   }
 />
 
+<PaperNotesDialog
+  open={Boolean(notesArticle)}
+  article={notesArticle}
+  onClose={() =>
+    setNotesArticle(null)
+  }
+/>
+
       {collectionModalOpen &&
         selectedArticle && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-sm">
@@ -2147,6 +2163,18 @@ const [
   className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 transition hover:bg-sky-100"
 >
   Abstract
+</button>
+
+<button
+  type="button"
+  onClick={() =>
+    setNotesArticle(
+      article
+    )
+  }
+  className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-700 transition hover:bg-amber-100"
+>
+  Notes
 </button>
 
                             {article.article_id && (
