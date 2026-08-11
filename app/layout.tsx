@@ -53,6 +53,12 @@ export default function RootLayout({
 </Link>
 
 <Link href="/alerts">Alerts</Link>
+<Link
+  href="/pricing"
+  className="hover:text-indigo-600"
+>
+  Pricing
+</Link>
 <Link href="/about">About</Link>
 
 <AdminNavLink />
