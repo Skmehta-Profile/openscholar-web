@@ -441,7 +441,7 @@ export default function ReaderPage() {
               <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold uppercase tracking-[0.25em] text-emerald-300">
-                    OpenScholar Reader
+                    OpenScholar-Web Reader
                   </p>
 
                   <h1 className="mt-4 max-w-5xl text-4xl font-bold leading-tight">

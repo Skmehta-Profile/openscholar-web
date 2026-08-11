@@ -10,6 +10,10 @@ import { supabase } from "@/lib/supabaseClient";
 import CitationDialog from "@/app/components/CitationDialog";
 import AbstractDialog from "@/app/components/AbstractDialog";
 import PaperNotesDialog from "@/app/components/PaperNotesDialog";
+import {
+  getMyEntitlements,
+  type OpenScholarPlan,
+} from "@/lib/entitlements";
 
 type SavedArticle = {
   id: string;
@@ -293,10 +297,25 @@ const [
   null
 );
 
+const [
+  collectionLimit,
+  setCollectionLimit,
+] = useState(3);
+
   const [
     collectionCount,
     setCollectionCount,
   ] = useState(0);
+
+  const [
+  libraryPlan,
+  setLibraryPlan,
+] = useState<OpenScholarPlan>("free");
+
+const [
+  libraryLimit,
+  setLibraryLimit,
+] = useState(100);
 
   useEffect(() => {
     loadLibrary();
@@ -317,10 +336,11 @@ const [
       userData.user;
 
     const [
-      collectionsResult,
-      articlesResult,
-      workspaceResult,
-    ] = await Promise.all([
+  collectionsResult,
+  articlesResult,
+  workspaceResult,
+  entitlements,
+] = await Promise.all([
       supabase
         .from("collections")
         .select(
@@ -348,16 +368,30 @@ const [
           ascending: false,
         }),
 
-      supabase
-        .from(
-          "research_workspace_items"
-        )
-        .select("*")
-        .eq(
-          "user_id",
-          currentUser.id
-        ),
-    ]);
+    supabase
+  .from(
+    "research_workspace_items"
+  )
+  .select("*")
+  .eq(
+    "user_id",
+    currentUser.id
+  ),
+
+getMyEntitlements(),
+]);
+
+    setLibraryPlan(
+      entitlements.plan
+    );
+
+    setLibraryLimit(
+      entitlements.saved_papers_limit
+    );
+
+    setCollectionLimit(
+      entitlements.collections_limit
+    );
 
     setCollections(
       collectionsResult.data ?? []
@@ -607,32 +641,28 @@ const [
       return;
     }
 
-    const { data: profile } =
-      await supabase
-        .from("profiles")
-        .select(
-          "plan, collection_limit"
-        )
-        .eq(
-          "id",
-          userData.user.id
-        )
-        .single();
+    const entitlements =
+      await getMyEntitlements();
 
-    const plan =
-      profile?.plan || "free";
-
-    const collectionLimit =
-      profile?.collection_limit ?? 3;
+    const currentCollectionLimit =
+      entitlements.collections_limit;
 
     if (
-      plan === "free" &&
       collectionCount >=
-        collectionLimit
+      currentCollectionLimit
     ) {
-      setMessage(
-        `Free plan allows up to ${collectionLimit} collections. Upgrade to OpenScholar Premium for unlimited collections.`
-      );
+      if (
+        entitlements.plan ===
+        "scholar"
+      ) {
+        setMessage(
+          "Your Scholar account has reached the 50-collection fair-use limit."
+        );
+      } else {
+        setMessage(
+          "Your Free account has reached the 3-collection limit. Upgrade to Scholar to create up to 50 collections."
+        );
+      }
 
       setCreatingCollection(false);
 
@@ -742,88 +772,36 @@ const [
       return;
     }
 
-    const { data: profile } =
-      await supabase
-        .from("profiles")
-        .select(
-          "plan, papers_per_collection_limit"
-        )
-        .eq(
-          "id",
-          userData.user.id
-        )
-        .single();
-
-    const plan =
-      profile?.plan || "free";
-
-    const papersPerCollectionLimit =
-      profile?.papers_per_collection_limit ??
-      25;
-
     const {
-      data: existingLink,
-    } = await supabase
-      .from(
-        "collection_articles"
-      )
-      .select("id")
-      .eq(
-        "user_id",
-        userData.user.id
-      )
-      .eq(
-        "collection_id",
-        selectedCollectionId
-      )
-      .eq(
-        "saved_article_id",
-        selectedArticle.id
-      )
-      .maybeSingle();
+  data: existingLink,
+} = await supabase
+  .from(
+    "collection_articles"
+  )
+  .select("id")
+  .eq(
+    "user_id",
+    userData.user.id
+  )
+  .eq(
+    "collection_id",
+    selectedCollectionId
+  )
+  .eq(
+    "saved_article_id",
+    selectedArticle.id
+  )
+  .maybeSingle();
 
-    if (existingLink) {
-      setMessage(
-        "This article is already in the selected collection."
-      );
+if (existingLink) {
+  setMessage(
+    "This article is already in the selected collection."
+  );
 
-      setAddingToCollection(false);
+  setAddingToCollection(false);
 
-      return;
-    }
-
-    if (plan === "free") {
-      const { count } =
-        await supabase
-          .from(
-            "collection_articles"
-          )
-          .select("*", {
-            count: "exact",
-            head: true,
-          })
-          .eq(
-            "user_id",
-            userData.user.id
-          )
-          .eq(
-            "collection_id",
-            selectedCollectionId
-          );
-
-      if (
-        (count ?? 0) >=
-        papersPerCollectionLimit
-      ) {
-        setMessage(
-          `This collection has reached the free-plan limit of ${papersPerCollectionLimit} papers. Upgrade to OpenScholar Premium for unlimited papers per collection.`
-        );
-
-        setAddingToCollection(false);
-
-        return;
-      }
-    }
+  return;
+}
 
     const { error } =
       await supabase
@@ -894,6 +872,30 @@ const [
       "APA-style citation copied."
     );
   }
+
+  const libraryUsed =
+  articles.length;
+
+const libraryRemaining =
+  Math.max(
+    libraryLimit - libraryUsed,
+    0
+  );
+
+const libraryUsagePercent =
+  libraryLimit > 0
+    ? Math.min(
+        100,
+        Math.round(
+          (libraryUsed /
+            libraryLimit) *
+            100
+        )
+      )
+    : 0;
+
+const libraryNearLimit =
+  libraryUsagePercent >= 80;
 
   const openAccessCount =
     articles.filter(
@@ -1263,12 +1265,15 @@ const [
                     Add to Collection
                   </p>
 
-                  <h2 className="mt-3 text-2xl font-black text-slate-950">
-                    {collections.length ===
-                    0
-                      ? "Create your first collection"
-                      : "Select collection"}
-                  </h2>
+                 <h2 className="mt-3 text-2xl font-black text-slate-950">
+  {collections.length === 0
+    ? "Create your first collection"
+    : "Select collection"}
+</h2>
+
+<p className="mt-2 text-xs font-semibold text-slate-500">
+  {collectionCount} of {collectionLimit} collections used
+</p>
 
                   <p className="mt-2 line-clamp-2 text-sm text-slate-500">
                     {cleanText(
@@ -1523,10 +1528,73 @@ const [
               </p>
 
               <p className="text-sm text-slate-500">
-                active collections
+                {collectionCount} of {collectionLimit} used
               </p>
             </div>
           </div>
+
+<div
+  className={`mt-4 rounded-2xl border px-5 py-4 ${
+    libraryNearLimit
+      ? "border-amber-200 bg-amber-50"
+      : "border-slate-200 bg-slate-50"
+  }`}
+>
+  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-black text-slate-900">
+          Library Usage
+        </p>
+
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
+            libraryPlan === "scholar"
+              ? "bg-indigo-100 text-indigo-700"
+              : "bg-slate-200 text-slate-600"
+          }`}
+        >
+          {libraryPlan === "scholar"
+            ? "Scholar"
+            : "Free"}
+        </span>
+      </div>
+
+      <p className="mt-1 text-sm text-slate-500">
+        {libraryUsed} of {libraryLimit} papers saved
+      </p>
+    </div>
+
+    <p
+      className={`text-sm font-black ${
+        libraryNearLimit
+          ? "text-amber-700"
+          : "text-slate-700"
+      }`}
+    >
+      {libraryRemaining}{" "}
+      {libraryRemaining === 1
+        ? "save"
+        : "saves"}{" "}
+      remaining
+    </p>
+  </div>
+
+  <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
+    <div
+      className={`h-full rounded-full ${
+        libraryUsagePercent >= 95
+          ? "bg-rose-500"
+          : libraryUsagePercent >= 80
+            ? "bg-amber-500"
+            : "bg-indigo-600"
+      }`}
+      style={{
+        width: `${libraryUsagePercent}%`,
+      }}
+    />
+  </div>
+</div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl bg-slate-50 px-4 py-3">
@@ -1628,7 +1696,7 @@ const [
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   Change a saved paper to
                   Reading or open it in
-                  OpenScholar Reader.
+                  OpenScholar-Web Reader.
                 </p>
               </div>
             ) : (

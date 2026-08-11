@@ -4,7 +4,10 @@ type OpenAlexWork = {
   id: string;
   title: string | null;
   type?: string | null;
+
   publication_year: number | null;
+  publication_date?: string | null;
+
   doi: string | null;
   cited_by_count: number | null;
 
@@ -18,6 +21,7 @@ type OpenAlexWork = {
     source?: {
       display_name?: string | null;
     } | null;
+
     landing_page_url?: string | null;
     pdf_url?: string | null;
   } | null;
@@ -26,6 +30,7 @@ type OpenAlexWork = {
     author?: {
       display_name?: string | null;
     } | null;
+
     institutions?: {
       display_name?: string | null;
     }[];
@@ -55,14 +60,22 @@ type OpenAlexAuthor = {
 };
 
 function cleanOpenAlexId(id: string) {
-  return id.substring(id.lastIndexOf("/") + 1);
+  return id.substring(
+    id.lastIndexOf("/") + 1
+  );
 }
 
 function normalizeDoi(value: string) {
   return value
     .trim()
-    .replace(/^https?:\/\/doi\.org\//i, "")
-    .replace(/^doi:\s*/i, "");
+    .replace(
+      /^https?:\/\/doi\.org\//i,
+      ""
+    )
+    .replace(
+      /^doi:\s*/i,
+      ""
+    );
 }
 
 async function resolveInstitutionId(
@@ -72,29 +85,47 @@ async function resolveInstitutionId(
     return null;
   }
 
-  const institutionUrl = new URL(
-    "https://api.openalex.org/institutions"
+  const institutionUrl =
+    new URL(
+      "https://api.openalex.org/institutions"
+    );
+
+  institutionUrl.searchParams.set(
+    "search",
+    institutionName.trim()
   );
 
-  institutionUrl.searchParams.set("search", institutionName.trim());
-  institutionUrl.searchParams.set("per-page", "1");
+  institutionUrl.searchParams.set(
+    "per-page",
+    "1"
+  );
 
-  const response = await fetch(institutionUrl.toString(), {
-    next: { revalidate: 3600 },
-  });
+  const response =
+    await fetch(
+      institutionUrl.toString(),
+      {
+        next: {
+          revalidate: 3600,
+        },
+      }
+    );
 
   if (!response.ok) {
     return null;
   }
 
-  const data = await response.json();
+  const data =
+    await response.json();
 
-  const institution = data.results?.[0] as
-    | OpenAlexInstitution
-    | undefined;
+  const institution =
+    data.results?.[0] as
+      | OpenAlexInstitution
+      | undefined;
 
   return institution?.id
-    ? cleanOpenAlexId(institution.id)
+    ? cleanOpenAlexId(
+        institution.id
+      )
     : null;
 }
 
@@ -102,10 +133,20 @@ async function resolveAuthorId(
   authorName: string,
   institutionId: string | null
 ): Promise<string | null> {
-  const authorUrl = new URL("https://api.openalex.org/authors");
+  const authorUrl =
+    new URL(
+      "https://api.openalex.org/authors"
+    );
 
-  authorUrl.searchParams.set("search", authorName.trim());
-  authorUrl.searchParams.set("per-page", "10");
+  authorUrl.searchParams.set(
+    "search",
+    authorName.trim()
+  );
+
+  authorUrl.searchParams.set(
+    "per-page",
+    "10"
+  );
 
   if (institutionId) {
     authorUrl.searchParams.set(
@@ -114,137 +155,233 @@ async function resolveAuthorId(
     );
   }
 
-  const response = await fetch(authorUrl.toString(), {
-    next: { revalidate: 3600 },
-  });
+  const response =
+    await fetch(
+      authorUrl.toString(),
+      {
+        next: {
+          revalidate: 3600,
+        },
+      }
+    );
 
   if (!response.ok) {
     return null;
   }
 
-  const data = await response.json();
+  const data =
+    await response.json();
 
-  const author = data.results?.[0] as OpenAlexAuthor | undefined;
+  const author =
+    data.results?.[0] as
+      | OpenAlexAuthor
+      | undefined;
 
-  return author?.id ? cleanOpenAlexId(author.id) : null;
+  return author?.id
+    ? cleanOpenAlexId(
+        author.id
+      )
+    : null;
 }
 
-export async function GET(request: Request) {
+export async function GET(
+  request: Request
+) {
   try {
-    const { searchParams } = new URL(request.url);
+    const {
+      searchParams,
+    } =
+      new URL(
+        request.url
+      );
 
-    const query = searchParams.get("q")?.trim() || "";
-    const mode = searchParams.get("mode") || "keyword";
-    const sort = searchParams.get("sort") || "relevance";
-    const year = searchParams.get("year") || "any";
-    const workType = searchParams.get("type") || "any";
+    const query =
+      searchParams
+        .get("q")
+        ?.trim() || "";
+
+    const mode =
+      searchParams.get(
+        "mode"
+      ) || "keyword";
+
+    const sort =
+      searchParams.get(
+        "sort"
+      ) || "relevance";
+
+    const year =
+      searchParams.get(
+        "year"
+      ) || "any";
+
+    const workType =
+      searchParams.get(
+        "type"
+      ) || "any";
+
     const institution =
-      searchParams.get("institution")?.trim() || "";
+      searchParams
+        .get("institution")
+        ?.trim() || "";
 
     const openAccessOnly =
-      searchParams.get("oa") === "true";
+      searchParams.get(
+        "oa"
+      ) === "true";
 
-    const page = Math.max(
-  1,
-  Number(searchParams.get("page") || "1")
-);
+    const page =
+      Math.max(
+        1,
+        Number(
+          searchParams.get(
+            "page"
+          ) || "1"
+        )
+      );
 
-    if (query.length < 2) {
+    if (
+      query.length < 2
+    ) {
       return NextResponse.json({
         results: [],
-        message: "Enter at least two characters.",
+        message:
+          "Enter at least two characters.",
       });
     }
 
-    const url = new URL("https://api.openalex.org/works");
-    const filters: string[] = [];
+    const url =
+      new URL(
+        "https://api.openalex.org/works"
+      );
 
-    /*
-     * SEARCH MODE
-     */
+    const filters:
+      string[] = [];
 
-    if (mode === "author") {
-      const institutionId = institution
-        ? await resolveInstitutionId(institution)
-        : null;
+    /* SEARCH MODE */
 
-      if (institution && !institutionId) {
+    if (
+      mode === "author"
+    ) {
+      const institutionId =
+        institution
+          ? await resolveInstitutionId(
+              institution
+            )
+          : null;
+
+      if (
+        institution &&
+        !institutionId
+      ) {
         return NextResponse.json({
           results: [],
-          message: `Institution "${institution}" was not found.`,
+          message:
+            `Institution "${institution}" was not found.`,
         });
       }
 
-      const authorId = await resolveAuthorId(
-        query,
-        institutionId
-      );
+      const authorId =
+        await resolveAuthorId(
+          query,
+          institutionId
+        );
 
       if (!authorId) {
         return NextResponse.json({
           results: [],
-          message: institution
-            ? `No author named "${query}" was found at "${institution}".`
-            : `No author named "${query}" was found.`,
+          message:
+            institution
+              ? `No author named "${query}" was found at "${institution}".`
+              : `No author named "${query}" was found.`,
         });
       }
 
-      filters.push(`author.id:${authorId}`);
-    } else if (mode === "title") {
-      filters.push(`title.search:${query}`);
-    } else if (mode === "doi") {
-      const doi = normalizeDoi(query);
+      filters.push(
+        `author.id:${authorId}`
+      );
+    } else if (
+      mode === "title"
+    ) {
+      filters.push(
+        `title.search:${query}`
+      );
+    } else if (
+      mode === "doi"
+    ) {
+      const doi =
+        normalizeDoi(
+          query
+        );
 
-      filters.push(`doi:https://doi.org/${doi}`);
+      filters.push(
+        `doi:https://doi.org/${doi}`
+      );
     } else {
-      url.searchParams.set("search", query);
+      url.searchParams.set(
+        "search",
+        query
+      );
     }
 
-    /*
-     * ARTICLE TYPE
-     */
+    /* ARTICLE TYPE */
 
-    if (workType !== "any") {
-      filters.push(`type:${workType}`);
+    if (
+      workType !== "any"
+    ) {
+      filters.push(
+        `type:${workType}`
+      );
     }
 
-    /*
-     * OPEN ACCESS
-     */
+    /* OPEN ACCESS */
 
-    if (openAccessOnly) {
-      filters.push("is_oa:true");
+    if (
+      openAccessOnly
+    ) {
+      filters.push(
+        "is_oa:true"
+      );
     }
 
-    /*
-     * PUBLICATION YEAR
-     */
+    /* PUBLICATION YEAR */
 
-    if (year !== "any") {
+    if (
+      year !== "any"
+    ) {
       filters.push(
         `from_publication_date:${year}-01-01`
       );
     }
 
-    if (filters.length > 0) {
-      url.searchParams.set("filter", filters.join(","));
+    if (
+      filters.length > 0
+    ) {
+      url.searchParams.set(
+        "filter",
+        filters.join(",")
+      );
     }
 
-    /*
-     * SORTING
-     */
+    /* SORTING */
 
-    if (sort === "cited") {
+    if (
+      sort === "cited"
+    ) {
       url.searchParams.set(
         "sort",
         "cited_by_count:desc"
       );
-    } else if (sort === "newest") {
+    } else if (
+      sort === "newest"
+    ) {
       url.searchParams.set(
         "sort",
-        "publication_year:desc"
+        "publication_date:desc"
       );
-    } else if (mode === "keyword") {
+    } else if (
+      mode === "keyword"
+    ) {
       url.searchParams.set(
         "sort",
         "relevance_score:desc"
@@ -252,20 +389,33 @@ export async function GET(request: Request) {
     } else {
       url.searchParams.set(
         "sort",
-        "publication_year:desc"
+        "publication_date:desc"
       );
     }
 
-    url.searchParams.set("per-page", "10");
+    url.searchParams.set(
+      "per-page",
+      "10"
+    );
 
-    url.searchParams.set("page", String(page));
+    url.searchParams.set(
+      "page",
+      String(page)
+    );
 
-    const response = await fetch(url.toString(), {
-      next: { revalidate: 3600 },
-    });
+    const response =
+      await fetch(
+        url.toString(),
+        {
+          next: {
+            revalidate: 3600,
+          },
+        }
+      );
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText =
+        await response.text();
 
       console.error(
         "OpenAlex request failed:",
@@ -277,180 +427,305 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           results: [],
-          error: "Failed to fetch OpenAlex results.",
+          error:
+            "Failed to fetch OpenAlex results.",
         },
-        { status: response.status }
+        {
+          status:
+            response.status,
+        }
       );
     }
 
-    const data = await response.json();
+    const data =
+      await response.json();
 
-    const results = (data.results || []).map(
-      (work: OpenAlexWork) => {
-        const authorList =
-          work.authorships
-            ?.slice(0, 8)
-            .map(
-              (authorship) =>
-                authorship.author?.display_name
-            )
-            .filter(
-              (name): name is string => Boolean(name)
-            ) || [];
-
-        const institutionNames =
-          work.authorships
-            ?.flatMap(
-              (authorship) =>
-                authorship.institutions?.map(
-                  (item) =>
-                    String(
-                      item.display_name || ""
-                    ).trim()
-                ) || []
-            )
-            .filter(Boolean) || [];
-
-        const institutionList = Array.from(
-          new Set(institutionNames)
-        ).slice(0, 8);
-
-        const abstract = work.abstract_inverted_index
-          ? Object.entries(
-              work.abstract_inverted_index
-            )
-              .flatMap(([word, positions]) =>
-                positions.map(
-                  (position) =>
-                    [position, word] as [
-                      number,
-                      string
-                    ]
-                )
-              )
-              .sort((a, b) => a[0] - b[0])
-              .map((item) => item[1])
-              .join(" ")
-          : "Abstract not available from source.";
-
-        const biblio =
-          [
-            work.publication_year
-              ? String(work.publication_year)
-              : null,
-
-            work.biblio?.volume
-              ? `Vol. ${work.biblio.volume}`
-              : null,
-
-            work.biblio?.issue
-              ? `Issue ${work.biblio.issue}`
-              : null,
-
-            work.biblio?.first_page &&
-            work.biblio?.last_page
-              ? `Pages ${work.biblio.first_page}-${work.biblio.last_page}`
-              : work.biblio?.first_page
-                ? `Page ${work.biblio.first_page}`
-                : null,
-          ]
-            .filter(Boolean)
-            .join(" · ") ||
-          "Bibliographic details not available";
-
-        return {
-          id: work.id,
-
-          title: (
-            work.title || "Untitled research work"
-          ).replace(/<[^>]+>/g, ""),
-
-          type: work.type || "unknown",
-
-          year: work.publication_year,
-
-          doi: work.doi,
-
-          journal:
-            work.primary_location?.source
-              ?.display_name || "Unknown source",
-
-          biblio,
-
-          authors:
-            authorList.join(", ") ||
-            "Authors not available",
-
-          authorList,
-          authorCount: authorList.length,
-
-          institutions:
-            institutionList.join(", ") ||
-            "Institutions not available",
-
-          institutionList,
-          institutionCount:
-            institutionList.length,
-
-          citations: work.cited_by_count || 0,
-
-          abstract,
-
-          keywords:
-            work.concepts
+    const results =
+      (
+        data.results || []
+      ).map(
+        (
+          work: OpenAlexWork
+        ) => {
+          const authorList =
+            work.authorships
               ?.slice(0, 8)
               .map(
-                (concept) =>
-                  concept.display_name
+                (
+                  authorship
+                ) =>
+                  authorship
+                    .author
+                    ?.display_name
               )
-              .filter(Boolean) || [],
+              .filter(
+                (
+                  name
+                ): name is string =>
+                  Boolean(
+                    name
+                  )
+              ) || [];
 
-          isOpenAccess:
-            work.open_access?.is_oa || false,
+          const institutionNames =
+            work.authorships
+              ?.flatMap(
+                (
+                  authorship
+                ) =>
+                  authorship
+                    .institutions
+                    ?.map(
+                      (
+                        item
+                      ) =>
+                        String(
+                          item.display_name ||
+                            ""
+                        ).trim()
+                    ) || []
+              )
+              .filter(
+                Boolean
+              ) || [];
 
-          openAccessUrl:
-            work.open_access?.oa_url ||
-            work.primary_location?.pdf_url ||
-            work.primary_location
-              ?.landing_page_url ||
-            null,
+          const institutionList =
+            Array.from(
+              new Set(
+                institutionNames
+              )
+            ).slice(
+              0,
+              8
+            );
 
-          sourceUrl:
-            work.primary_location
-              ?.landing_page_url || work.id,
-        };
-      }
-    );
+          const abstract =
+            work.abstract_inverted_index
+              ? Object.entries(
+                  work.abstract_inverted_index
+                )
+                  .flatMap(
+                    ([
+                      word,
+                      positions,
+                    ]) =>
+                      positions.map(
+                        (
+                          position
+                        ) =>
+                          [
+                            position,
+                            word,
+                          ] as [
+                            number,
+                            string,
+                          ]
+                      )
+                  )
+                  .sort(
+                    (
+                      a,
+                      b
+                    ) =>
+                      a[0] -
+                      b[0]
+                  )
+                  .map(
+                    (
+                      item
+                    ) =>
+                      item[1]
+                  )
+                  .join(" ")
+              : "Abstract not available from source.";
 
-    const totalResults = data.meta?.count || 0;
-const perPage = 10;
-const totalPages = Math.ceil(totalResults / perPage);
+          const biblio =
+            [
+              work.publication_year
+                ? String(
+                    work.publication_year
+                  )
+                : null,
 
-return NextResponse.json({
-  results,
-  pagination: {
-    page,
-    perPage,
-    totalResults,
-    totalPages,
-    hasPreviousPage: page > 1,
-    hasNextPage: page < totalPages,
-  },
-  message:
-    results.length === 0
-      ? "No matching papers were found."
-      : "",
-});
+              work.biblio
+                ?.volume
+                ? `Vol. ${work.biblio.volume}`
+                : null,
+
+              work.biblio
+                ?.issue
+                ? `Issue ${work.biblio.issue}`
+                : null,
+
+              work.biblio
+                  ?.first_page &&
+              work.biblio
+                ?.last_page
+                ? `Pages ${work.biblio.first_page}-${work.biblio.last_page}`
+                : work.biblio
+                    ?.first_page
+                  ? `Page ${work.biblio.first_page}`
+                  : null,
+            ]
+              .filter(
+                Boolean
+              )
+              .join(" ") ||
+            "Bibliographic details not available";
+
+          return {
+            id:
+              work.id,
+
+            title:
+              (
+                work.title ||
+                "Untitled research work"
+              ).replace(
+                /<[^>]+>/g,
+                ""
+              ),
+
+            type:
+              work.type ||
+              "unknown",
+
+            year:
+              work.publication_year,
+
+            publicationDate:
+              work.publication_date ||
+              null,
+
+            doi:
+              work.doi,
+
+            journal:
+              work.primary_location
+                ?.source
+                ?.display_name ||
+              "Unknown source",
+
+            biblio,
+
+            authors:
+              authorList.join(
+                ", "
+              ) ||
+              "Authors not available",
+
+            authorList,
+
+            authorCount:
+              authorList.length,
+
+            institutions:
+              institutionList.join(
+                ", "
+              ) ||
+              "Institutions not available",
+
+            institutionList,
+
+            institutionCount:
+              institutionList.length,
+
+            citations:
+              work.cited_by_count ||
+              0,
+
+            abstract,
+
+            keywords:
+              work.concepts
+                ?.slice(
+                  0,
+                  8
+                )
+                .map(
+                  (
+                    concept
+                  ) =>
+                    concept.display_name
+                )
+                .filter(
+                  Boolean
+                ) || [],
+
+            isOpenAccess:
+              work.open_access
+                ?.is_oa ||
+              false,
+
+            openAccessUrl:
+              work.open_access
+                ?.oa_url ||
+              work.primary_location
+                ?.pdf_url ||
+              work.primary_location
+                ?.landing_page_url ||
+              null,
+
+            sourceUrl:
+              work.primary_location
+                ?.landing_page_url ||
+              work.id,
+          };
+        }
+      );
+
+    const totalResults =
+      data.meta?.count ||
+      0;
+
+    const perPage =
+      10;
+
+    const totalPages =
+      Math.ceil(
+        totalResults /
+          perPage
+      );
+
+    return NextResponse.json({
+      results,
+
+      pagination: {
+        page,
+        perPage,
+        totalResults,
+        totalPages,
+
+        hasPreviousPage:
+          page > 1,
+
+        hasNextPage:
+          page <
+          totalPages,
+      },
+
+      message:
+        results.length ===
+        0
+          ? "No matching papers were found."
+          : "",
+    });
   } catch (error) {
-    console.error("Search API error:", error);
+    console.error(
+      "Search API error:",
+      error
+    );
 
     return NextResponse.json(
       {
         results: [],
+
         error:
           "An unexpected error occurred while searching.",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }

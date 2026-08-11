@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import { supabase } from "@/lib/supabaseClient";
+import { getMyEntitlements } from "@/lib/entitlements";
 
 type NotesArticle = {
   id: string;
@@ -42,12 +48,17 @@ function normalizeDoi(value: string | null) {
   }
 
   return value
-    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, "")
+    .replace(
+      /^https?:\/\/(?:dx\.)?doi\.org\//i,
+      ""
+    )
     .replace(/^doi:\s*/i, "")
     .trim();
 }
 
-function tagsToText(tags: string[] | null | undefined) {
+function tagsToText(
+  tags: string[] | null | undefined
+) {
   return (tags || []).join(", ");
 }
 
@@ -67,20 +78,79 @@ export default function PaperNotesDialog({
   article,
   onClose,
 }: PaperNotesDialogProps) {
-  const [generalNotes, setGeneralNotes] = useState("");
-  const [keyFindings, setKeyFindings] = useState("");
-  const [methods, setMethods] = useState("");
-  const [relevance, setRelevance] = useState("");
-  const [citationNote, setCitationNote] = useState("");
-  const [tagsText, setTagsText] = useState("");
+  const [
+    generalNotes,
+    setGeneralNotes,
+  ] = useState("");
 
-  const [existingRecord, setExistingRecord] =
-    useState<NotesRecord | null>(null);
+  const [
+    keyFindings,
+    setKeyFindings,
+  ] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [loadError, setLoadError] = useState("");
+  const [
+    methods,
+    setMethods,
+  ] = useState("");
+
+  const [
+    relevance,
+    setRelevance,
+  ] = useState("");
+
+  const [
+    citationNote,
+    setCitationNote,
+  ] = useState("");
+
+  const [
+    tagsText,
+    setTagsText,
+  ] = useState("");
+
+  const [
+    existingRecord,
+    setExistingRecord,
+  ] = useState<NotesRecord | null>(
+    null
+  );
+
+  const [
+    loading,
+    setLoading,
+  ] = useState(false);
+
+  const [
+    saving,
+    setSaving,
+  ] = useState(false);
+
+  const [
+    message,
+    setMessage,
+  ] = useState("");
+
+  const [
+    loadError,
+    setLoadError,
+  ] = useState("");
+
+  const [
+    notePlan,
+    setNotePlan,
+  ] = useState<
+    "free" | "scholar"
+  >("free");
+
+  const [
+    notesCount,
+    setNotesCount,
+  ] = useState(0);
+
+  const [
+    notesLimit,
+    setNotesLimit,
+  ] = useState(10);
 
   const tags = useMemo(
     () => textToTags(tagsText),
@@ -88,15 +158,16 @@ export default function PaperNotesDialog({
   );
 
   useEffect(() => {
-  if (!open || !article) {
-    return;
-  }
+    if (!open || !article) {
+      return;
+    }
 
-  const currentArticle = article;
+    const currentArticle =
+      article;
 
-  let cancelled = false;
+    let cancelled = false;
 
-  async function loadNotes() {
+    async function loadNotes() {
       setLoading(true);
       setLoadError("");
       setMessage("");
@@ -113,55 +184,121 @@ export default function PaperNotesDialog({
         const {
           data: { user },
           error: authError,
-        } = await supabase.auth.getUser();
+        } =
+          await supabase.auth.getUser();
 
-        if (authError || !user) {
+        if (
+          authError ||
+          !user
+        ) {
           if (!cancelled) {
             setLoadError(
               "Please sign in to access your research notes."
             );
           }
+
           return;
         }
 
-        const { data, error } = await supabase
-          .from("research_paper_notes")
-          .select(
-            `
-              id,
-              user_id,
-              saved_article_id,
-              general_notes,
-              key_findings,
-              methods,
-              relevance,
-              citation_note,
-              tags,
-              created_at,
-              updated_at
-            `
-          )
-          .eq("user_id", user.id)
-          .eq("saved_article_id", currentArticle.id)
-          .maybeSingle();
+        const [
+          notesResult,
+          entitlements,
+        ] =
+          await Promise.all([
+            supabase
+              .from(
+                "research_paper_notes"
+              )
+              .select(
+                `
+                  id,
+                  user_id,
+                  saved_article_id,
+                  general_notes,
+                  key_findings,
+                  methods,
+                  relevance,
+                  citation_note,
+                  tags,
+                  created_at,
+                  updated_at
+                `
+              )
+              .eq(
+                "user_id",
+                user.id
+              )
+              .eq(
+                "saved_article_id",
+                currentArticle.id
+              )
+              .maybeSingle(),
 
-        if (error) {
-          throw error;
+            getMyEntitlements(),
+          ]);
+
+        if (
+          notesResult.error
+        ) {
+          throw notesResult.error;
         }
 
-        if (!cancelled && data) {
-          const record = data as NotesRecord;
+        if (!cancelled) {
+          setNotePlan(
+            entitlements.plan
+          );
 
-          setExistingRecord(record);
-          setGeneralNotes(record.general_notes || "");
-          setKeyFindings(record.key_findings || "");
-          setMethods(record.methods || "");
-          setRelevance(record.relevance || "");
-          setCitationNote(record.citation_note || "");
-          setTagsText(tagsToText(record.tags));
+          setNotesCount(
+            entitlements.notes_count
+          );
+
+          setNotesLimit(
+            entitlements.notes_limit
+          );
+        }
+
+        if (
+          !cancelled &&
+          notesResult.data
+        ) {
+          const record =
+            notesResult.data as NotesRecord;
+
+          setExistingRecord(
+            record
+          );
+
+          setGeneralNotes(
+            record.general_notes || ""
+          );
+
+          setKeyFindings(
+            record.key_findings || ""
+          );
+
+          setMethods(
+            record.methods || ""
+          );
+
+          setRelevance(
+            record.relevance || ""
+          );
+
+          setCitationNote(
+            record.citation_note || ""
+          );
+
+          setTagsText(
+            tagsToText(
+              record.tags
+            )
+          );
         }
       } catch (error) {
-        console.error("Unable to load paper notes:", error);
+        console.error(
+          "Unable to load paper notes:",
+          error
+        );
 
         if (!cancelled) {
           setLoadError(
@@ -186,58 +323,142 @@ export default function PaperNotesDialog({
     return null;
   }
 
-  const doi = normalizeDoi(article.doi);
+  const doi =
+    normalizeDoi(article.doi);
 
   const hasContent =
-    generalNotes.trim().length > 0 ||
-    keyFindings.trim().length > 0 ||
-    methods.trim().length > 0 ||
-    relevance.trim().length > 0 ||
-    citationNote.trim().length > 0 ||
+    generalNotes.trim().length >
+      0 ||
+    keyFindings.trim().length >
+      0 ||
+    methods.trim().length >
+      0 ||
+    relevance.trim().length >
+      0 ||
+    citationNote.trim().length >
+      0 ||
     tags.length > 0;
 
+  const notesRemaining =
+    Math.max(
+      notesLimit - notesCount,
+      0
+    );
+
+  const noteUsagePercent =
+    notesLimit > 0
+      ? Math.min(
+          100,
+          Math.round(
+            (notesCount /
+              notesLimit) *
+              100
+          )
+        )
+      : 0;
+
+  const noteNearLimit =
+    noteUsagePercent >= 80;
+
   async function saveNotes() {
-  if (!article) {
-    return;
-  }
+    if (!article) {
+      return;
+    }
 
-  const currentArticle = article;
+    const currentArticle =
+      article;
 
-  setSaving(true);
-  setMessage("");
-  setLoadError("");
+    setSaving(true);
+    setMessage("");
+    setLoadError("");
 
-  try {
+    try {
       const {
         data: { user },
         error: authError,
-      } = await supabase.auth.getUser();
+      } =
+        await supabase.auth.getUser();
 
-      if (authError || !user) {
+      if (
+        authError ||
+        !user
+      ) {
         setLoadError(
           "Please sign in to save research notes."
         );
+
         return;
+      }
+
+      /*
+        Existing notes can always
+        be updated.
+
+        Only NEW note records are
+        subject to the plan limit.
+      */
+
+      if (!existingRecord) {
+        const entitlements =
+          await getMyEntitlements();
+
+        setNotePlan(
+          entitlements.plan
+        );
+
+        setNotesCount(
+          entitlements.notes_count
+        );
+
+        setNotesLimit(
+          entitlements.notes_limit
+        );
+
+        if (
+          !entitlements.can_create_note
+        ) {
+          if (
+            entitlements.plan ===
+            "scholar"
+          ) {
+            setLoadError(
+              "Your Scholar account has reached the 500-note fair-use limit. Delete an existing note to create another."
+            );
+          } else {
+            setLoadError(
+              "Your Free account has reached the 10-note limit. Upgrade to Scholar to create notes for up to 500 papers."
+            );
+          }
+
+          return;
+        }
       }
 
       const payload = {
         user_id: user.id,
-        saved_article_id: currentArticle.id,
+
+        saved_article_id:
+          currentArticle.id,
 
         general_notes:
-          generalNotes.trim() || null,
+          generalNotes.trim() ||
+          null,
 
         key_findings:
-          keyFindings.trim() || null,
+          keyFindings.trim() ||
+          null,
 
         methods:
-          methods.trim() || null,
+          methods.trim() ||
+          null,
 
         relevance:
-          relevance.trim() || null,
+          relevance.trim() ||
+          null,
 
         citation_note:
-          citationNote.trim() || null,
+          citationNote.trim() ||
+          null,
 
         tags,
       };
@@ -246,11 +467,16 @@ export default function PaperNotesDialog({
         data,
         error,
       } = await supabase
-        .from("research_paper_notes")
-        .upsert(payload, {
-          onConflict:
-            "user_id,saved_article_id",
-        })
+        .from(
+          "research_paper_notes"
+        )
+        .upsert(
+          payload,
+          {
+            onConflict:
+              "user_id,saved_article_id",
+          }
+        )
         .select(
           `
             id,
@@ -272,12 +498,24 @@ export default function PaperNotesDialog({
         throw error;
       }
 
+      const wasExisting =
+        Boolean(
+          existingRecord
+        );
+
       setExistingRecord(
         data as NotesRecord
       );
 
+      if (!wasExisting) {
+        setNotesCount(
+          (current) =>
+            current + 1
+        );
+      }
+
       setMessage(
-        existingRecord
+        wasExisting
           ? "Research notes updated."
           : "Research notes saved."
       );
@@ -316,21 +554,31 @@ export default function PaperNotesDialog({
     try {
       const {
         data: { user },
-      } = await supabase.auth.getUser();
+      } =
+        await supabase.auth.getUser();
 
       if (!user) {
         setLoadError(
           "Please sign in to delete research notes."
         );
+
         return;
       }
 
       const { error } =
         await supabase
-          .from("research_paper_notes")
+          .from(
+            "research_paper_notes"
+          )
           .delete()
-          .eq("id", existingRecord.id)
-          .eq("user_id", user.id);
+          .eq(
+            "id",
+            existingRecord.id
+          )
+          .eq(
+            "user_id",
+            user.id
+          );
 
       if (error) {
         throw error;
@@ -344,6 +592,14 @@ export default function PaperNotesDialog({
       setRelevance("");
       setCitationNote("");
       setTagsText("");
+
+      setNotesCount(
+        (current) =>
+          Math.max(
+            current - 1,
+            0
+          )
+      );
 
       setMessage(
         "Research notes deleted."
@@ -409,22 +665,31 @@ export default function PaperNotesDialog({
         <div className="p-8">
           <section className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
             <h3 className="text-xl font-black leading-snug text-slate-950">
-              {cleanText(article.title) || "Untitled article"}
+              {cleanText(
+                article.title
+              ) ||
+                "Untitled article"}
             </h3>
 
             <p className="mt-3 text-sm text-slate-500">
-              {article.authors || "Authors not available"}
+              {article.authors ||
+                "Authors not available"}
             </p>
 
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-700">
               <span>
-                {article.journal || "Unknown source"}
+                {article.journal ||
+                  "Unknown source"}
               </span>
 
               {article.year && (
                 <>
                   <span>·</span>
-                  <span>{article.year}</span>
+                  <span>
+                    {
+                      article.year
+                    }
+                  </span>
                 </>
               )}
             </div>
@@ -448,6 +713,88 @@ export default function PaperNotesDialog({
               )}
             </div>
           </section>
+
+          {!loading && (
+            <section
+              className={`mt-5 rounded-2xl border px-5 py-4 ${
+                noteNearLimit
+                  ? "border-amber-200 bg-amber-50"
+                  : "border-slate-200 bg-slate-50"
+              }`}
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-black text-slate-900">
+                      Notes Usage
+                    </p>
+
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${
+                        notePlan ===
+                        "scholar"
+                          ? "bg-indigo-100 text-indigo-700"
+                          : "bg-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {notePlan ===
+                      "scholar"
+                        ? "Scholar"
+                        : "Free"}
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    {notesCount} of{" "}
+                    {notesLimit} note
+                    records used
+                  </p>
+                </div>
+
+                <p
+                  className={`text-sm font-black ${
+                    noteNearLimit
+                      ? "text-amber-700"
+                      : "text-slate-700"
+                  }`}
+                >
+                  {notesRemaining}{" "}
+                  {notesRemaining ===
+                  1
+                    ? "note"
+                    : "notes"}{" "}
+                  remaining
+                </p>
+              </div>
+
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className={`h-full rounded-full ${
+                    noteUsagePercent >=
+                    95
+                      ? "bg-rose-500"
+                      : noteUsagePercent >=
+                          80
+                        ? "bg-amber-500"
+                        : "bg-indigo-600"
+                  }`}
+                  style={{
+                    width: `${noteUsagePercent}%`,
+                  }}
+                />
+              </div>
+
+              {!existingRecord &&
+                notePlan ===
+                  "free" &&
+                notesCount >=
+                  notesLimit && (
+                  <p className="mt-3 text-xs font-bold text-amber-800">
+                    Free note limit reached. Existing notes remain editable.
+                  </p>
+                )}
+            </section>
+          )}
 
           {loadError && (
             <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-bold text-rose-700">
@@ -484,7 +831,9 @@ export default function PaperNotesDialog({
                 <textarea
                   value={generalNotes}
                   onChange={(event) =>
-                    setGeneralNotes(event.target.value)
+                    setGeneralNotes(
+                      event.target.value
+                    )
                   }
                   rows={6}
                   placeholder="What should you remember about this paper?"
@@ -506,7 +855,9 @@ export default function PaperNotesDialog({
                   <textarea
                     value={keyFindings}
                     onChange={(event) =>
-                      setKeyFindings(event.target.value)
+                      setKeyFindings(
+                        event.target.value
+                      )
                     }
                     rows={8}
                     placeholder="Important findings, numerical results, conclusions..."
@@ -527,7 +878,9 @@ export default function PaperNotesDialog({
                   <textarea
                     value={methods}
                     onChange={(event) =>
-                      setMethods(event.target.value)
+                      setMethods(
+                        event.target.value
+                      )
                     }
                     rows={8}
                     placeholder="Methods, experimental design, instruments, statistical analysis..."
@@ -549,7 +902,9 @@ export default function PaperNotesDialog({
                 <textarea
                   value={relevance}
                   onChange={(event) =>
-                    setRelevance(event.target.value)
+                    setRelevance(
+                      event.target.value
+                    )
                   }
                   rows={5}
                   placeholder="Why is this paper relevant to your research?"
@@ -569,7 +924,9 @@ export default function PaperNotesDialog({
                 <textarea
                   value={citationNote}
                   onChange={(event) =>
-                    setCitationNote(event.target.value)
+                    setCitationNote(
+                      event.target.value
+                    )
                   }
                   rows={4}
                   placeholder="Example: Cite when discussing algal biosorption of heavy metals..."
@@ -590,7 +947,9 @@ export default function PaperNotesDialog({
                 <input
                   value={tagsText}
                   onChange={(event) =>
-                    setTagsText(event.target.value)
+                    setTagsText(
+                      event.target.value
+                    )
                   }
                   placeholder="heavy metals, algae, biosorption, wastewater"
                   className="mt-3 w-full rounded-2xl border border-slate-300 px-5 py-4 text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
@@ -598,14 +957,20 @@ export default function PaperNotesDialog({
 
                 {tags.length > 0 && (
                   <div className="mt-4 flex flex-wrap gap-2">
-                    {tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"
-                      >
-                        {tag}
-                      </span>
-                    ))}
+                    {tags.map(
+                      (tag) => (
+                        <span
+                          key={
+                            tag
+                          }
+                          className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700"
+                        >
+                          {
+                            tag
+                          }
+                        </span>
+                      )
+                    )}
                   </div>
                 )}
               </section>
@@ -615,7 +980,7 @@ export default function PaperNotesDialog({
           <div className="mt-8 flex flex-col gap-4 border-t border-slate-200 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs leading-5 text-slate-500">
-                These notes are private to your OpenScholar account.
+                These notes are private to your OpenScholar-Web account.
               </p>
 
               <p className="mt-1 text-xs leading-5 text-slate-400">
@@ -628,8 +993,12 @@ export default function PaperNotesDialog({
               {existingRecord && (
                 <button
                   type="button"
-                  onClick={deleteNotes}
-                  disabled={saving}
+                  onClick={
+                    deleteNotes
+                  }
+                  disabled={
+                    saving
+                  }
                   className="rounded-xl border border-rose-200 px-5 py-3 text-sm font-bold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Delete Notes
@@ -638,8 +1007,12 @@ export default function PaperNotesDialog({
 
               <button
                 type="button"
-                onClick={handleClose}
-                disabled={saving}
+                onClick={
+                  handleClose
+                }
+                disabled={
+                  saving
+                }
                 className="rounded-xl border border-slate-300 px-5 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
               >
                 Close
@@ -647,8 +1020,14 @@ export default function PaperNotesDialog({
 
               <button
                 type="button"
-                onClick={saveNotes}
-                disabled={saving || loading || !hasContent}
+                onClick={
+                  saveNotes
+                }
+                disabled={
+                  saving ||
+                  loading ||
+                  !hasContent
+                }
                 className="rounded-xl bg-indigo-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving

@@ -16,7 +16,8 @@ export default function AdminNavLink() {
         const {
           data: authData,
           error: authError,
-        } = await supabase.auth.getUser();
+        } =
+          await supabase.auth.getUser();
 
         if (
           authError ||
@@ -26,15 +27,17 @@ export default function AdminNavLink() {
           if (mounted) {
             setIsAdmin(false);
           }
+
           return;
         }
 
         const {
           data: adminAccess,
           error: adminError,
-        } = await supabase.rpc(
-          "is_openscholar_admin"
-        );
+        } =
+          await supabase.rpc(
+            "is_openscholar_admin"
+          );
 
         if (
           adminError ||
@@ -43,6 +46,7 @@ export default function AdminNavLink() {
           if (mounted) {
             setIsAdmin(false);
           }
+
           return;
         }
 
@@ -63,7 +67,9 @@ export default function AdminNavLink() {
 
     checkAdmin();
 
-    const { data: authListener } =
+    const {
+      data: authListener,
+    } =
       supabase.auth.onAuthStateChange(
         () => {
           checkAdmin();
@@ -83,7 +89,7 @@ export default function AdminNavLink() {
 
   return (
     <Link
-      href="/admin/publications"
+      href="/admin"
       className="font-bold text-indigo-700 transition hover:text-indigo-900"
     >
       Admin

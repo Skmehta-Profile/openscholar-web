@@ -281,6 +281,74 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="mx-auto max-w-7xl px-6 pb-16">
+  <div className="overflow-hidden rounded-[2rem] border border-indigo-200 bg-white shadow-sm">
+    <div className="grid gap-0 lg:grid-cols-[1.15fr_0.85fr]">
+      <div className="p-8 md:p-10">
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-indigo-700">
+          For Researchers
+        </p>
+
+        <h2 className="mt-4 max-w-2xl text-3xl font-black leading-tight text-slate-950 md:text-4xl">
+          Build a research profile you control.
+        </h2>
+
+        <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
+          Find your scholarly identity, verify ownership,
+          curate your publications, add missing research
+          and share a professional OpenScholar profile.
+        </p>
+
+        <div className="mt-7 flex flex-wrap gap-3">
+          <Link
+            href="/profile"
+            className="rounded-xl bg-indigo-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+          >
+            Build My Profile
+          </Link>
+
+          <Link
+            href="/search"
+            className="rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+          >
+            Find a Researcher
+          </Link>
+        </div>
+      </div>
+
+      <div className="border-t border-slate-200 bg-slate-950 p-8 text-white lg:border-l lg:border-t-0 md:p-10">
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
+          Researcher Profile
+        </p>
+
+        <div className="mt-5 space-y-3">
+          {[
+            "Verify profile ownership",
+            "Curate your publication record",
+            "Add missing publications",
+            "Review research analytics",
+            "Export publication records",
+            "Share your public profile",
+          ].map((item) => (
+            <div
+              key={item}
+              className="flex items-start gap-3 rounded-2xl bg-white/10 px-4 py-3"
+            >
+              <span className="font-black text-emerald-300">
+                ✓
+              </span>
+
+              <span className="text-sm leading-6 text-slate-200">
+                {item}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
       <section className="mx-auto max-w-7xl px-6 pb-24">
         <div className="mb-10 text-center">
           <p className="text-sm font-black uppercase tracking-[0.25em] text-indigo-700">

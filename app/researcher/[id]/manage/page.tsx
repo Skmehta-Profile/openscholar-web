@@ -5,6 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  getMyEntitlements,
+  type OpenScholarEntitlements,
+} from "@/lib/entitlements";
 import AddPublicationDialog, {
   type AddedPublication as SharedAddedPublication,
 } from "@/app/components/AddPublicationDialog";
@@ -296,6 +300,9 @@ export default function PublicationManagerPage() {
   const [user, setUser] =
     useState<User | null>(null);
 
+  const [entitlements, setEntitlements] =
+    useState<OpenScholarEntitlements | null>(null);
+
   const [claim, setClaim] =
     useState<ResearcherClaim | null>(null);
 
@@ -449,11 +456,15 @@ const [managerError, setManagerError] =
         const currentUser = authData.user;
         console.log("Current user:", currentUser.id);
 
+        const currentEntitlements =
+          await getMyEntitlements();
+
         if (!mounted) {
           return;
         }
 
         setUser(currentUser);
+        setEntitlements(currentEntitlements);
 
         const [
           researcherResponse,
@@ -954,6 +965,14 @@ function showManagerError(
 function openCuratedEditDialog(
   publication: ManagerPublication
 ) {
+  if (!canManagePublications) {
+    showManagerError(
+      "Publication curation is available with the OpenScholar-Web Scholar plan."
+    );
+
+    return;
+  }
+
   if (
     publication.managerSource !== "crossref" ||
     !publication.additionId
@@ -1040,6 +1059,14 @@ function openCuratedEditDialog(
   }
 
   async function hideOpenAlexPublication() {
+  if (!canManagePublications) {
+    showManagerError(
+      "Publication curation is available with the OpenScholar-Web Scholar plan."
+    );
+
+    return;
+  }
+
   if (
     !user ||
     !publicationToHide ||
@@ -1114,6 +1141,14 @@ function openCuratedEditDialog(
 async function restoreHiddenPublication(
   exclusion: PublicationExclusion
 ) {
+  if (!canManagePublications) {
+    showManagerError(
+      "Publication curation is available with the OpenScholar-Web Scholar plan."
+    );
+
+    return;
+  }
+
   const confirmed = window.confirm(
     "Restore this publication to the public profile?"
   );
@@ -1162,6 +1197,14 @@ async function restoreHiddenPublication(
 }
 
 async function removeCuratedPublication() {
+  if (!canManagePublications) {
+    showManagerError(
+      "Publication curation is available with the OpenScholar-Web Scholar plan."
+    );
+
+    return;
+  }
+
   if (
     !curatedPublicationToRemove ||
     !curatedPublicationToRemove.additionId
@@ -1222,6 +1265,14 @@ async function removeCuratedPublication() {
 }
 
 async function updateCuratedPublication() {
+  if (!canManagePublications) {
+    showManagerError(
+      "Publication curation is available with the OpenScholar-Web Scholar plan."
+    );
+
+    return;
+  }
+
   if (
     !curatedPublicationToEdit ||
     !curatedPublicationToEdit.additionId
@@ -1466,6 +1517,9 @@ async function updateCuratedPublication() {
 
   const profile = researcherData.profile;
 
+  const canManagePublications =
+    entitlements?.can_manage_publications === true;
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-10">
     {managerMessage && (
@@ -1479,6 +1533,33 @@ async function updateCuratedPublication() {
     {managerError}
   </div>
 )}
+
+{!canManagePublications && (
+  <div className="mb-6 rounded-3xl border border-indigo-200 bg-indigo-50 px-6 py-5">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-700">
+          Free Research Profile
+        </p>
+
+        <h2 className="mt-2 text-lg font-black text-slate-950">
+          Your complete publication record remains visible
+        </h2>
+
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+          OpenAlex publications and basic research information remain free.
+          Upgrade to Scholar to add missing publications, hide incorrect
+          records, edit curated publications and manage your research profile.
+        </p>
+      </div>
+
+      <span className="shrink-0 rounded-full border border-indigo-200 bg-white px-4 py-2 text-xs font-black text-indigo-700">
+        Scholar features locked
+      </span>
+    </div>
+  </div>
+)}
+
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Link
           href={`/researcher/${researcherId}`}
@@ -1516,12 +1597,25 @@ async function updateCuratedPublication() {
             <div className="flex flex-wrap gap-3">
   <button
     type="button"
-    onClick={() =>
-      setShowAddPublicationDialog(true)
-    }
-    className="inline-flex w-fit items-center rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+    onClick={() => {
+      if (!canManagePublications) {
+        showManagerError(
+          "Adding publications is available with the OpenScholar-Web Scholar plan."
+        );
+        return;
+      }
+
+      setShowAddPublicationDialog(true);
+    }}
+    className={`inline-flex w-fit items-center rounded-xl px-5 py-3 text-sm font-bold transition ${
+      canManagePublications
+        ? "bg-indigo-700 text-white hover:bg-indigo-800"
+        : "border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+    }`}
   >
-    + Add Publication
+    {canManagePublications
+      ? "+ Add Publication"
+      : "🔒 Add Publication"}
   </button>
 
   <Link

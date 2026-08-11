@@ -7,7 +7,7 @@ import AdminNavLink from "./components/AdminNavLink";
 
 
 export const metadata: Metadata = {
-  title: "OpenScholar Web",
+  title: "OpenScholar-Web",
   description: "Research Discovery Platform",
 };
 
@@ -32,7 +32,7 @@ export default function RootLayout({
 
               <div>
                 <h1 className="text-xl font-black tracking-tight">
-                  OpenScholar
+                  OpenScholar-Web
                 </h1>
                 <p className="text-xs font-medium text-slate-500">
                   Research Discovery Platform
@@ -42,9 +42,17 @@ export default function RootLayout({
 
             <div className="hidden items-center gap-7 text-sm font-semibold text-slate-600 md:flex">
               <Link href="/search">Search</Link>
-              <Link href="/library">Library</Link>
-              <Link href="/collections">Collections</Link>
-              <Link href="/alerts">Alerts</Link>
+<Link href="/library">Library</Link>
+<Link href="/collections">Collections</Link>
+
+<Link
+  href="/profile"
+  className="font-bold text-indigo-700"
+>
+  Profile
+</Link>
+
+<Link href="/alerts">Alerts</Link>
 <Link href="/about">About</Link>
 
 <AdminNavLink />
@@ -57,7 +65,7 @@ export default function RootLayout({
         {children}
 
         <footer className="border-t border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-500">
-          OpenScholar Web · Built in India · DVS Analytik
+          OpenScholar-Web · Built in India · DVS Analytik
         </footer>
       </body>
     </html>

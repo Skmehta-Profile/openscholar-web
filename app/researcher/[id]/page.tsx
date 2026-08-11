@@ -9,6 +9,7 @@ import {
 import { useParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/lib/supabaseClient";
+import { getMyEntitlements } from "@/lib/entitlements";
 import type { User } from "@supabase/supabase-js";
 import AddPublicationDialog from "@/app/components/AddPublicationDialog";
 
@@ -909,7 +910,13 @@ const [showQrDialog, setShowQrDialog] =
   useState<ExportFormat>("csv");
 
 const [exportMessage, setExportMessage] =
-  useState("");  
+  useState("");
+  
+const [canBulkExport, setCanBulkExport] =
+  useState(false);
+
+const [exportEntitlementsLoading, setExportEntitlementsLoading] =
+  useState(true);  
 
 const [user, setUser] =
   useState<User | null>(null);
@@ -1089,6 +1096,55 @@ const [additionMessage, setAdditionMessage] =
     authListener.subscription.unsubscribe();
   };
 }, []);
+
+useEffect(() => {
+  let mounted = true;
+
+  async function loadExportEntitlements() {
+    setExportEntitlementsLoading(true);
+
+    if (!user) {
+      if (mounted) {
+        setCanBulkExport(false);
+        setExportEntitlementsLoading(false);
+      }
+
+      return;
+    }
+
+    try {
+      const entitlements =
+        await getMyEntitlements();
+
+      if (!mounted) {
+        return;
+      }
+
+      setCanBulkExport(
+        entitlements.can_bulk_export === true
+      );
+    } catch (error) {
+      console.error(
+        "Unable to load export entitlements:",
+        error
+      );
+
+      if (mounted) {
+        setCanBulkExport(false);
+      }
+    } finally {
+      if (mounted) {
+        setExportEntitlementsLoading(false);
+      }
+    }
+  }
+
+  loadExportEntitlements();
+
+  return () => {
+    mounted = false;
+  };
+}, [user]);
 
 useEffect(() => {
   let mounted = true;
@@ -1906,6 +1962,30 @@ function exportPublications(
   scope: ExportScope
 ) {
   if (!data) {
+    return;
+  }
+
+  if (!user) {
+    setExportMessage(
+      "Sign in to export publication records."
+    );
+
+    window.setTimeout(() => {
+      setExportMessage("");
+    }, 3000);
+
+    return;
+  }
+
+  if (!canBulkExport) {
+    setExportMessage(
+      "Bulk publication export is available with the OpenScholar-Web Scholar plan."
+    );
+
+    window.setTimeout(() => {
+      setExportMessage("");
+    }, 3500);
+
     return;
   }
 
@@ -4087,10 +4167,18 @@ const alternativeNames =
   onClick={() =>
     exportPublications("all")
   }
-  className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+  disabled={exportEntitlementsLoading}
+  className={`rounded-xl px-5 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+    canBulkExport
+      ? "bg-indigo-700 text-white hover:bg-indigo-800"
+      : "border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+  }`}
 >
-  Export All (
-  {displayedPublicationCount})
+  {exportEntitlementsLoading
+    ? "Checking..."
+    : canBulkExport
+      ? `Export All (${displayedPublicationCount})`
+      : "🔒 Export All"}
 </button>
 
 <button
@@ -4098,10 +4186,18 @@ const alternativeNames =
   onClick={() =>
     exportPublications("current")
   }
-  className="rounded-xl border border-indigo-200 bg-white px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+  disabled={exportEntitlementsLoading}
+  className={`rounded-xl px-5 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+    canBulkExport
+      ? "border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50"
+      : "border border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+  }`}
 >
-  Export Current (
-  {visiblePublications.length})
+  {exportEntitlementsLoading
+    ? "Checking..."
+    : canBulkExport
+      ? `Export Current (${visiblePublications.length})`
+      : "🔒 Export Current"}
 </button>
     </div>
   </div>
