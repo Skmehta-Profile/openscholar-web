@@ -71,7 +71,144 @@ export default function MyProfilePage() {
   useState<SubscriptionStatus | null>(null);
 
 const [subscriptionLoading, setSubscriptionLoading] =
-  useState(false);  
+  useState(false);
+  
+const [syncingSubscription, setSyncingSubscription] =
+  useState(false);
+
+const [subscriptionSyncMessage, setSubscriptionSyncMessage] =
+  useState("");  
+
+async function loadSubscriptionStatus() {
+  const {
+    data: sessionData,
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  const accessToken =
+    sessionData.session?.access_token;
+
+  if (
+    sessionError ||
+    !accessToken
+  ) {
+    throw new Error(
+      "Please sign in again."
+    );
+  }
+
+  const response =
+    await fetch(
+      "/api/subscriptions/status",
+      {
+        method: "GET",
+
+        headers: {
+          Authorization:
+            `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+  const data =
+    await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+        "Unable to load subscription status."
+    );
+  }
+
+  setSubscription(
+    data as SubscriptionStatus
+  );
+
+  return accessToken;
+}
+
+async function syncSubscription() {
+  if (syncingSubscription) {
+    return;
+  }
+
+  setSyncingSubscription(true);
+  setSubscriptionSyncMessage("");
+
+  try {
+    const {
+      data: sessionData,
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    const accessToken =
+      sessionData.session?.access_token;
+
+    if (
+      sessionError ||
+      !accessToken
+    ) {
+      throw new Error(
+        "Please sign in again before syncing your subscription."
+      );
+    }
+
+    const response =
+      await fetch(
+        "/api/subscriptions/reconcile",
+        {
+          method: "POST",
+
+          headers: {
+            Authorization:
+              `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+          "Unable to sync subscription."
+      );
+    }
+
+    /*
+      Re-read the repaired local
+      subscription after Razorpay
+      reconciliation.
+    */
+
+    await loadSubscriptionStatus();
+
+    if (data.reconciled) {
+      setSubscriptionSyncMessage(
+        "Subscription synced successfully with Razorpay."
+      );
+    } else {
+      setSubscriptionSyncMessage(
+        data.reason ||
+          "Your subscription is already up to date."
+      );
+    }
+  } catch (error) {
+    console.error(
+      "Subscription reconciliation failed:",
+      error
+    );
+
+    setSubscriptionSyncMessage(
+      error instanceof Error
+        ? error.message
+        : "Unable to sync subscription."
+    );
+  } finally {
+    setSyncingSubscription(false);
+  }
+}
 
   useEffect(() => {
     let mounted = true;
@@ -102,42 +239,7 @@ const [subscriptionLoading, setSubscriptionLoading] =
         setSubscriptionLoading(true);
 
 try {
-  const {
-    data: sessionData,
-    error: sessionError,
-  } = await supabase.auth.getSession();
-
-  const accessToken =
-    sessionData.session?.access_token;
-
-  if (!sessionError && accessToken) {
-    const subscriptionResponse =
-      await fetch(
-        "/api/subscriptions/status",
-        {
-          method: "GET",
-          headers: {
-            Authorization:
-              `Bearer ${accessToken}`,
-          },
-        }
-      );
-
-    if (subscriptionResponse.ok) {
-      const subscriptionData =
-        (await subscriptionResponse.json()) as SubscriptionStatus;
-
-      if (mounted) {
-        setSubscription(
-          subscriptionData
-        );
-      }
-    } else {
-      console.error(
-        "Unable to load subscription status."
-      );
-    }
-  }
+  await loadSubscriptionStatus();
 } catch (subscriptionError) {
   console.error(
     "Subscription status load failed:",
@@ -282,6 +384,9 @@ try {
   <SubscriptionCard
     subscription={subscription}
     loading={subscriptionLoading}
+    syncing={syncingSubscription}
+    syncMessage={subscriptionSyncMessage}
+    onSync={syncSubscription}
   />
 )}
 
@@ -626,9 +731,15 @@ function RejectedProfile({
 function SubscriptionCard({
   subscription,
   loading,
+  syncing,
+  syncMessage,
+  onSync,
 }: {
   subscription: SubscriptionStatus | null;
   loading: boolean;
+  syncing: boolean;
+  syncMessage: string;
+  onSync: () => Promise<void>;
 }) {
   const [cancelling, setCancelling] =
     useState(false);
@@ -911,6 +1022,21 @@ function SubscriptionCard({
         </div>
 
         <div className="flex min-w-[240px] flex-col gap-3">
+          <button
+  type="button"
+  onClick={onSync}
+  disabled={syncing}
+  className="rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-3 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+>
+  {syncing
+    ? "Syncing..."
+    : "Sync Subscription"}
+</button>
+{syncMessage && (
+  <p className="text-sm font-semibold text-slate-600">
+    {syncMessage}
+  </p>
+)}
           {hasScholarAccess ? (
             <>
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4">
