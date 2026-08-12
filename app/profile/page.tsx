@@ -24,6 +24,18 @@ type ResearcherClaim = {
   updated_at: string;
 };
 
+type SubscriptionStatus = {
+  plan: string;
+  status: string;
+  billingCycle: string | null;
+  provider: string | null;
+  providerSubscriptionId: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  cancelledAt: string | null;
+};
+
 function formatDate(value: string | null) {
   if (!value) {
     return "";
@@ -55,6 +67,12 @@ export default function MyProfilePage() {
   const [message, setMessage] =
     useState("");
 
+  const [subscription, setSubscription] =
+  useState<SubscriptionStatus | null>(null);
+
+const [subscriptionLoading, setSubscriptionLoading] =
+  useState(false);  
+
   useEffect(() => {
     let mounted = true;
 
@@ -80,6 +98,56 @@ export default function MyProfilePage() {
         }
 
         setSignedIn(true);
+
+        setSubscriptionLoading(true);
+
+try {
+  const {
+    data: sessionData,
+    error: sessionError,
+  } = await supabase.auth.getSession();
+
+  const accessToken =
+    sessionData.session?.access_token;
+
+  if (!sessionError && accessToken) {
+    const subscriptionResponse =
+      await fetch(
+        "/api/subscriptions/status",
+        {
+          method: "GET",
+          headers: {
+            Authorization:
+              `Bearer ${accessToken}`,
+          },
+        }
+      );
+
+    if (subscriptionResponse.ok) {
+      const subscriptionData =
+        (await subscriptionResponse.json()) as SubscriptionStatus;
+
+      if (mounted) {
+        setSubscription(
+          subscriptionData
+        );
+      }
+    } else {
+      console.error(
+        "Unable to load subscription status."
+      );
+    }
+  }
+} catch (subscriptionError) {
+  console.error(
+    "Subscription status load failed:",
+    subscriptionError
+  );
+} finally {
+  if (mounted) {
+    setSubscriptionLoading(false);
+  }
+}
 
         const {
           data,
@@ -209,6 +277,13 @@ export default function MyProfilePage() {
           </p>
         </div>
       </section>
+
+{signedIn && (
+  <SubscriptionCard
+    subscription={subscription}
+    loading={subscriptionLoading}
+  />
+)}
 
       {!signedIn ? (
         <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
@@ -544,6 +619,340 @@ function RejectedProfile({
       >
         Open Profile
       </Link>
+    </section>
+  );
+}
+
+function SubscriptionCard({
+  subscription,
+  loading,
+}: {
+  subscription: SubscriptionStatus | null;
+  loading: boolean;
+}) {
+  const [cancelling, setCancelling] =
+    useState(false);
+
+  const [cancelMessage, setCancelMessage] =
+    useState("");
+
+  const [cancelScheduled, setCancelScheduled] =
+    useState(
+      subscription?.cancelAtPeriodEnd ?? false
+    );
+
+  useEffect(() => {
+    setCancelScheduled(
+      subscription?.cancelAtPeriodEnd ?? false
+    );
+  }, [subscription?.cancelAtPeriodEnd]);
+
+  async function cancelSubscription() {
+    if (
+      cancelling ||
+      cancelScheduled
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "Cancel your Scholar subscription at the end of the current billing period? You will keep Scholar access until then."
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setCancelling(true);
+    setCancelMessage("");
+
+    try {
+      const {
+        data: sessionData,
+        error: sessionError,
+      } =
+        await supabase.auth.getSession();
+
+      const accessToken =
+        sessionData.session?.access_token;
+
+      if (
+        sessionError ||
+        !accessToken
+      ) {
+        setCancelMessage(
+          "Please sign in again before managing your subscription."
+        );
+
+        return;
+      }
+
+      const response =
+        await fetch(
+          "/api/subscriptions/cancel",
+          {
+            method: "POST",
+
+            headers: {
+              Authorization:
+                `Bearer ${accessToken}`,
+            },
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Unable to cancel subscription."
+        );
+      }
+
+      setCancelScheduled(true);
+
+      setCancelMessage(
+        "Cancellation scheduled successfully. Your Scholar access will remain active until the end of the current billing period."
+      );
+    } catch (error) {
+      console.error(
+        "Unable to cancel Scholar subscription:",
+        error
+      );
+
+      setCancelMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to cancel subscription. Please try again."
+      );
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <section className="mt-8 rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm">
+        <p className="text-sm font-semibold text-slate-500">
+          Loading subscription status...
+        </p>
+      </section>
+    );
+  }
+
+  const hasScholarAccess =
+    subscription?.plan === "scholar" &&
+    (
+      subscription?.status === "active" ||
+      subscription?.status === "pending"
+    );
+
+  const isActive =
+    subscription?.status === "active";
+
+  const isPending =
+    subscription?.status === "pending";
+
+  const isPastDue =
+    subscription?.status === "past_due";
+
+  const isEnded =
+    subscription?.status === "cancelled" ||
+    subscription?.status === "expired";
+
+  const billingLabel =
+    subscription?.billingCycle === "monthly"
+      ? "₹199/month"
+      : subscription?.billingCycle === "annual"
+        ? "₹1,999/year"
+        : null;
+
+  return (
+    <section className="mt-8 rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm">
+      <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-700">
+            Subscription
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <h2 className="text-2xl font-black text-slate-950">
+              {hasScholarAccess
+                ? "Scholar Plan"
+                : "Free Plan"}
+            </h2>
+
+            {isActive && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black uppercase text-emerald-700">
+                Active
+              </span>
+            )}
+
+            {isPending && (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black uppercase text-amber-700">
+                Payment Pending
+              </span>
+            )}
+
+            {isPastDue && (
+              <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-black uppercase text-rose-700">
+                Payment Issue
+              </span>
+            )}
+
+            {isEnded && (
+              <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-black uppercase text-slate-600">
+                Scholar Ended
+              </span>
+            )}
+
+            {hasScholarAccess &&
+              cancelScheduled && (
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black uppercase text-amber-700">
+                  Cancellation Scheduled
+                </span>
+              )}
+          </div>
+
+          {hasScholarAccess ? (
+            <>
+              {billingLabel && (
+                <p className="mt-3 font-semibold text-slate-600">
+                  {billingLabel}
+                </p>
+              )}
+
+              {subscription?.currentPeriodEnd && (
+                <p className="mt-2 text-sm text-slate-500">
+                  Current billing period ends{" "}
+                  {formatDate(
+                    subscription.currentPeriodEnd
+                  )}
+                </p>
+              )}
+
+              {isPending && (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+                  <p className="text-sm font-bold text-amber-800">
+                    Payment is being retried.
+                  </p>
+
+                  <p className="mt-1 text-sm leading-6 text-amber-700">
+                    Scholar access remains available
+                    temporarily while Razorpay retries
+                    the payment.
+                  </p>
+                </div>
+              )}
+
+              {cancelScheduled && (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+                  <p className="text-sm font-bold text-amber-800">
+                    Your subscription will not renew.
+                  </p>
+
+                  <p className="mt-1 text-sm leading-6 text-amber-700">
+                    Scholar access remains available
+                    until the end of your current
+                    billing period
+                    {subscription?.currentPeriodEnd
+                      ? ` on ${formatDate(
+                          subscription.currentPeriodEnd
+                        )}.`
+                      : "."}
+                  </p>
+                </div>
+              )}
+
+              {cancelMessage && (
+                <p
+                  className={`mt-4 text-sm font-semibold ${
+                    cancelScheduled
+                      ? "text-emerald-700"
+                      : "text-rose-700"
+                  }`}
+                >
+                  {cancelMessage}
+                </p>
+              )}
+            </>
+          ) : isPastDue ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4">
+              <p className="text-sm font-bold text-rose-800">
+                We could not renew your Scholar
+                subscription.
+              </p>
+
+              <p className="mt-1 text-sm leading-6 text-rose-700">
+                Your account has returned to the Free
+                plan. You can start a new Scholar
+                subscription whenever you are ready.
+              </p>
+            </div>
+          ) : isEnded ? (
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+              <p className="text-sm font-bold text-slate-800">
+                Your Scholar subscription has ended.
+              </p>
+
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Your account is now on the Free plan.
+                You can restart Scholar at any time.
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              Upgrade to Scholar for premium
+              OpenScholar features.
+            </p>
+          )}
+        </div>
+
+        <div className="flex min-w-[240px] flex-col gap-3">
+          {hasScholarAccess ? (
+            <>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-5 py-4">
+                <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                  Scholar Access
+                </p>
+
+                <p className="mt-1 text-sm font-semibold text-slate-700">
+                  {isPending
+                    ? "Your Scholar access remains available while payment is retried."
+                    : "Your Scholar subscription is active."}
+                </p>
+              </div>
+
+              {isActive &&
+                !cancelScheduled && (
+                  <button
+                    type="button"
+                    onClick={
+                      cancelSubscription
+                    }
+                    disabled={cancelling}
+                    className="rounded-xl border border-rose-200 bg-white px-5 py-3 text-sm font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {cancelling
+                      ? "Scheduling cancellation..."
+                      : "Cancel Subscription"}
+                  </button>
+                )}
+            </>
+          ) : (
+            <Link
+              href="/pricing"
+              className="inline-flex justify-center rounded-xl bg-indigo-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+            >
+              {isPastDue || isEnded
+                ? "Restart Scholar"
+                : "Upgrade to Scholar"}
+            </Link>
+          )}
+        </div>
+      </div>
     </section>
   );
 }

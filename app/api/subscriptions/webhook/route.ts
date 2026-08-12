@@ -78,9 +78,11 @@ function mapSubscriptionStatus(
     case "expired":
       return "expired";
 
-    case "halted":
     case "pending":
-      return "past_due";
+  return "pending";
+
+case "halted":
+  return "past_due";
 
     default:
       return "past_due";

@@ -6,6 +6,7 @@ export type OpenScholarPlan =
 
 export type SubscriptionStatus =
   | "active"
+  | "pending"
   | "cancelled"
   | "expired"
   | "past_due";
