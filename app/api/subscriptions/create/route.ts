@@ -11,6 +11,9 @@ import {
 import {
   logSubscriptionAudit,
 } from "@/lib/subscriptionAudit";
+import {
+  getSubscriptionConfig,
+} from "@/lib/subscriptionConfig";
 
 type BillingCycle =
   | "monthly"
@@ -312,66 +315,116 @@ export async function POST(
     }
 
     /*
-      4. Load Razorpay
-      server credentials.
-    */
+      /*
+  4. Load and validate
+  Razorpay server configuration.
+*/
 
-    const keyId =
-      process.env
-        .RAZORPAY_KEY_ID;
+let subscriptionConfig;
 
-    const keySecret =
-      process.env
-        .RAZORPAY_KEY_SECRET;
+try {
+  subscriptionConfig =
+    getSubscriptionConfig();
+} catch (error) {
+  console.error(
+    "Invalid Razorpay subscription configuration:",
+    error
+  );
 
-    if (
-      !keyId ||
-      !keySecret
-    ) {
-      console.error(
-        "Razorpay credentials are missing."
-      );
-
-      return NextResponse.json(
-        {
-          error:
-            "Payment service is not configured.",
-        },
-        {
-          status: 500,
-        }
-      );
+  return NextResponse.json(
+    {
+      error:
+        "Payment service is not configured.",
+    },
+    {
+      status: 500,
     }
+  );
+}
 
-    const monthlyPlanId =
-      process.env
-        .RAZORPAY_SCHOLAR_MONTHLY_PLAN_ID;
+const isProduction =
+  process.env.VERCEL_ENV ===
+  "production";
 
-    const annualPlanId =
-      process.env
-        .RAZORPAY_SCHOLAR_ANNUAL_PLAN_ID;
+/*
+  Prevent accidental mixing of
+  Razorpay Test and Live modes.
 
-    const planId =
-      billingCycle ===
-      "monthly"
-        ? monthlyPlanId
-        : annualPlanId;
+  Production must use Live mode.
 
-    if (!planId) {
-      console.error(
-        `Razorpay plan ID missing for ${billingCycle}.`
-      );
+  Local/Preview environments must
+  never use Live credentials.
+*/
 
-      return NextResponse.json(
-        {
-          error:
-            "Subscription plan is not configured.",
-        },
-        {
-          status: 500,
-        }
-      );
+if (
+  isProduction &&
+  subscriptionConfig.mode !==
+    "live"
+) {
+  console.error(
+    "Production billing attempted with non-live Razorpay credentials."
+  );
+
+  return NextResponse.json(
+    {
+      error:
+        "Payment service configuration is invalid.",
+    },
+    {
+      status: 500,
     }
+  );
+}
+
+if (
+  !isProduction &&
+  subscriptionConfig.mode ===
+    "live"
+) {
+  console.error(
+    "Live Razorpay credentials are not allowed outside production."
+  );
+
+  return NextResponse.json(
+    {
+      error:
+        "Payment service configuration is invalid.",
+    },
+    {
+      status: 500,
+    }
+  );
+}
+
+const {
+  keyId,
+  keySecret,
+  monthlyPlanId,
+  annualPlanId,
+} =
+  subscriptionConfig;
+
+const planId =
+  billingCycle ===
+  "monthly"
+    ? monthlyPlanId
+    : annualPlanId;
+
+if (!planId) {
+  console.error(
+    `Razorpay plan ID missing for ${billingCycle}.`
+  );
+
+  return NextResponse.json(
+    {
+      error:
+        "Subscription plan is not configured.",
+    },
+    {
+      status: 500,
+    }
+  );
+}
 
     /*
       5. Create Razorpay
