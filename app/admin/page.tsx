@@ -1266,7 +1266,7 @@ export default function AdminDashboardPage() {
           Admin Operations
         </h2>
 
-        <div className="mt-6 grid gap-5 lg:grid-cols-3">
+        <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           <Link
             href="/admin/publications"
             className="rounded-3xl border border-slate-200 bg-slate-50 p-6 transition hover:border-indigo-300 hover:bg-indigo-50"
@@ -1328,6 +1328,29 @@ export default function AdminDashboardPage() {
               indexed OpenAlex records.
             </p>
           </div>
+                    <Link
+            href="/admin/subscriptions"
+            className="rounded-3xl border border-slate-200 bg-slate-50 p-6 transition hover:border-indigo-300 hover:bg-indigo-50"
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+              Subscription Operations
+            </p>
+
+            <h3 className="mt-3 text-xl font-black text-slate-950">
+              Subscription Audit Trail
+            </h3>
+
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              Review Razorpay payments,
+              subscription lifecycle events,
+              webhook activity and
+              reconciliation history.
+            </p>
+
+            <p className="mt-5 text-sm font-bold text-indigo-700">
+              View Audit Trail →
+            </p>
+          </Link>
         </div>
       </section>
 
