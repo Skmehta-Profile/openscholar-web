@@ -224,16 +224,18 @@ export default function ScholarCheckoutButton() {
       );
 
     razorpay.open();
-  } catch (error) {
-    console.error(
-      "Unable to start Razorpay checkout:",
-      error
-    );
+ } catch (error) {
+  console.error(
+    "Unable to start Razorpay checkout:",
+    error
+  );
 
-    setMessage(
-      "Unable to start payment. Please try again."
-    );
-  } finally {
+  setMessage(
+    error instanceof Error
+      ? error.message
+      : "Unable to start payment. Please try again."
+  );
+} finally {
     setLoading(false);
   }
 }

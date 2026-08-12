@@ -56,9 +56,14 @@ export async function POST(
       process.env
         .NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+    const serviceRoleKey =
+      process.env
+        .SUPABASE_SERVICE_ROLE_KEY;
+
     if (
       !supabaseUrl ||
-      !supabaseAnonKey
+      !supabaseAnonKey ||
+      !serviceRoleKey
     ) {
       console.error(
         "Supabase environment variables are missing."
@@ -81,8 +86,11 @@ export async function POST(
         supabaseAnonKey,
         {
           auth: {
-            persistSession: false,
-            autoRefreshToken: false,
+            persistSession:
+              false,
+
+            autoRefreshToken:
+              false,
           },
         }
       );
@@ -127,8 +135,10 @@ export async function POST(
         | undefined;
 
     if (
-      billingCycle !== "monthly" &&
-      billingCycle !== "annual"
+      billingCycle !==
+        "monthly" &&
+      billingCycle !==
+        "annual"
     ) {
       return NextResponse.json(
         {
@@ -142,7 +152,163 @@ export async function POST(
     }
 
     /*
-      3. Load Razorpay
+      3. DUPLICATE SUBSCRIPTION
+      PROTECTION
+
+      Never trust the browser to
+      decide whether another paid
+      subscription can be created.
+
+      The server checks the current
+      OpenScholar subscription state.
+    */
+
+    const adminSupabase =
+      createClient<any>(
+        supabaseUrl,
+        serviceRoleKey,
+        {
+          auth: {
+            persistSession:
+              false,
+
+            autoRefreshToken:
+              false,
+          },
+        }
+      );
+
+    const {
+      data:
+        existingSubscription,
+      error:
+        existingSubscriptionError,
+    } =
+      await adminSupabase
+        .from(
+          "openscholar_subscriptions"
+        )
+        .select(
+          `
+            plan,
+            status,
+            billing_cycle,
+            provider,
+            provider_subscription_id,
+            current_period_end,
+            cancel_at_period_end
+          `
+        )
+        .eq(
+          "user_id",
+          user.id
+        )
+        .maybeSingle();
+
+    if (
+      existingSubscriptionError
+    ) {
+      console.error(
+        "Unable to check existing subscription:",
+        existingSubscriptionError
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "Unable to verify your current subscription.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const existingStatus =
+      existingSubscription
+        ?.status;
+
+    const hasBlockingSubscription =
+      existingSubscription
+        ?.plan ===
+        "scholar" &&
+      (
+        existingStatus ===
+          "active" ||
+        existingStatus ===
+          "pending" ||
+        existingStatus ===
+          "past_due"
+      );
+
+    if (
+      hasBlockingSubscription
+    ) {
+      let message =
+        "You already have a Scholar subscription.";
+
+      if (
+        existingStatus ===
+        "pending"
+      ) {
+        message =
+          "Your Scholar payment is currently being retried. Please manage the existing subscription instead of creating another one.";
+      }
+
+      if (
+        existingStatus ===
+        "past_due"
+      ) {
+        message =
+          "Your existing Scholar subscription has a payment issue. Please resolve or cancel it before starting another subscription.";
+      }
+
+      if (
+        existingSubscription
+          ?.cancel_at_period_end
+      ) {
+        message =
+          "Your Scholar subscription is still active and cancellation is scheduled for the end of the current billing period. A new subscription cannot be started until the current one ends.";
+      }
+
+      return NextResponse.json(
+        {
+          error:
+            message,
+
+          code:
+            "SUBSCRIPTION_ALREADY_EXISTS",
+
+          subscription: {
+            status:
+              existingStatus,
+
+            billingCycle:
+              existingSubscription
+                ?.billing_cycle,
+
+            providerSubscriptionId:
+              existingSubscription
+                ?.provider_subscription_id,
+
+            currentPeriodEnd:
+              existingSubscription
+                ?.current_period_end,
+
+            cancelAtPeriodEnd:
+              existingSubscription
+                ?.cancel_at_period_end ??
+              false,
+          },
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
+    /*
+      4. Load Razorpay
       server credentials.
     */
 
@@ -204,15 +370,8 @@ export async function POST(
     }
 
     /*
-      4. Create the Razorpay
+      5. Create Razorpay
       subscription.
-
-      We attach the authenticated
-      Supabase user ID to Razorpay
-      notes so the webhook can later
-      identify which OpenScholar-Web
-      account should receive Scholar
-      access.
     */
 
     const razorpay =
@@ -260,7 +419,8 @@ export async function POST(
               user.id,
 
             openscholar_email:
-              user.email || "",
+              user.email ||
+              "",
           },
         });
 
