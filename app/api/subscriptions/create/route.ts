@@ -8,6 +8,10 @@ import {
   createClient,
 } from "@supabase/supabase-js";
 
+import {
+  logSubscriptionAudit,
+} from "@/lib/subscriptionAudit";
+
 type BillingCycle =
   | "monthly"
   | "annual";
@@ -423,6 +427,41 @@ export async function POST(
               "",
           },
         });
+
+        await logSubscriptionAudit(
+  adminSupabase,
+  {
+    userId:
+      user.id,
+
+    action:
+      "subscription_created",
+
+    source:
+      "checkout",
+
+    providerSubscriptionId:
+      subscription.id,
+
+    previousStatus:
+      existingSubscription
+        ?.status ??
+      null,
+
+    newStatus:
+      subscription.status ??
+      "created",
+
+    billingCycle,
+
+    message:
+      "Razorpay Scholar subscription created.",
+
+    metadata: {
+      planId,
+    },
+  }
+);
 
     return NextResponse.json(
       {

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  logSubscriptionAudit,
+} from "@/lib/subscriptionAudit";
 
 type RazorpaySubscription = {
   id: string;
@@ -425,6 +428,42 @@ export async function POST(
         }
       );
     }
+
+    await logSubscriptionAudit(
+  adminSupabase,
+  {
+    userId,
+
+    action:
+      "subscription_reconciled",
+
+    source:
+      "reconcile",
+
+    providerSubscriptionId:
+      razorpayData.id,
+
+    previousStatus:
+      localSubscription.status,
+
+    newStatus:
+      mappedStatus,
+
+    billingCycle:
+      localSubscription
+        .billing_cycle,
+
+    message:
+      "Local subscription state reconciled with Razorpay.",
+
+    metadata: {
+      razorpayStatus:
+        razorpayData.status,
+
+      cancelAtPeriodEnd,
+    },
+  }
+);
 
     return NextResponse.json({
       success: true,

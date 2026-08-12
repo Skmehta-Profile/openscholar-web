@@ -8,6 +8,10 @@ import {
   createClient,
 } from "@supabase/supabase-js";
 
+import {
+  logSubscriptionAudit,
+} from "@/lib/subscriptionAudit";
+
 type RazorpaySubscriptionEntity = {
   id: string;
 
@@ -955,7 +959,39 @@ export async function POST(
       10. MARK EVENT SUCCESSFULLY
       PROCESSED
     */
+await logSubscriptionAudit(
+  adminSupabase,
+  {
+    userId,
 
+    action:
+      eventName,
+
+    source:
+      "webhook",
+
+    providerSubscriptionId:
+      subscription.id,
+
+    providerPaymentId:
+      paymentId,
+
+    newStatus:
+      internalStatus,
+
+    billingCycle,
+
+    message:
+      `Razorpay webhook processed: ${eventName}`,
+
+    metadata: {
+      eventId,
+      razorpayStatus:
+        subscription.status ??
+        null,
+    },
+  }
+);
     await updateEventStatus(
       "processed",
       null,

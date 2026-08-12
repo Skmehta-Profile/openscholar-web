@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  logSubscriptionAudit,
+} from "@/lib/subscriptionAudit";
 
 export async function POST(
   request: Request
@@ -347,6 +350,38 @@ export async function POST(
         }
       );
     }
+
+    await logSubscriptionAudit(
+  adminSupabase,
+  {
+    userId,
+
+    action:
+      "cancellation_scheduled",
+
+    source:
+      "cancel",
+
+    providerSubscriptionId:
+      subscription
+        .provider_subscription_id,
+
+    previousStatus:
+      subscription.status,
+
+    newStatus:
+      subscription.status,
+
+    message:
+      "Scholar subscription cancellation scheduled for the end of the current billing period.",
+
+    metadata: {
+      currentPeriodEnd:
+        subscription
+          .current_period_end,
+    },
+  }
+);
 
     return NextResponse.json({
       success: true,
