@@ -109,10 +109,8 @@ export async function POST(
     | null = null;
 
   let adminSupabase:
-    | ReturnType<
-        typeof createClient
-      >
-    | null = null;
+  | ReturnType<typeof createClient<any>>
+  | null = null;
 
   try {
     /*
@@ -294,19 +292,16 @@ export async function POST(
     }
 
     adminSupabase =
-      createClient(
-        supabaseUrl,
-        supabaseSecret,
-        {
-          auth: {
-            persistSession:
-              false,
-
-            autoRefreshToken:
-              false,
-          },
-        }
-      );
+  createClient<any>(
+    supabaseUrl,
+    supabaseSecret,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    }
+  );
 
     /*
       5. IDEMPOTENCY GATE
