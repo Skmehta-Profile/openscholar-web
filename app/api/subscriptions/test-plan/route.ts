@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 import Razorpay from "razorpay";
 
 export async function GET() {
+  if (process.env.VERCEL_ENV === "production") {
+    return NextResponse.json(
+      {
+        error: "Not available in production.",
+      },
+      {
+        status: 404,
+      }
+    );
+  }
   try {
     const keyId =
       process.env.RAZORPAY_KEY_ID;
