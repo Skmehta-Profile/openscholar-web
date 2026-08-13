@@ -3,6 +3,13 @@ import { createClient } from "@supabase/supabase-js";
 import {
   logSubscriptionAudit,
 } from "@/lib/subscriptionAudit";
+import {
+  getSubscriptionConfig,
+} from "@/lib/subscriptionConfig";
+
+import {
+  checkRateLimit,
+} from "@/lib/rateLimit";
 
 type RazorpaySubscription = {
   id: string;
@@ -157,6 +164,44 @@ export async function POST(
       userData.user.id;
 
     /*
+  Basic abuse protection for
+  subscription reconciliation.
+
+  The limiter uses the verified
+  OpenScholar user ID.
+*/
+
+const rateLimit =
+  checkRateLimit({
+    key:
+      `subscription-reconcile:${userId}`,
+
+    limit: 10,
+
+    windowMs:
+      10 * 60 * 1000,
+  });
+
+if (!rateLimit.allowed) {
+  return NextResponse.json(
+    {
+      error:
+        "Too many subscription sync attempts. Please wait before trying again.",
+    },
+    {
+      status: 429,
+
+      headers: {
+        "Retry-After":
+          String(
+            rateLimit.retryAfterSeconds
+          ),
+      },
+    }
+  );
+}  
+
+    /*
       2. Load the local subscription.
     */
 
@@ -233,28 +278,77 @@ export async function POST(
       from Razorpay.
     */
 
-    const razorpayKeyId =
-      process.env
-        .RAZORPAY_KEY_ID;
+    let subscriptionConfig;
 
-    const razorpayKeySecret =
-      process.env
-        .RAZORPAY_KEY_SECRET;
+try {
+  subscriptionConfig =
+    getSubscriptionConfig();
+} catch (error) {
+  console.error(
+    "Invalid Razorpay subscription configuration:",
+    error
+  );
 
-    if (
-      !razorpayKeyId ||
-      !razorpayKeySecret
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Payment service is not configured.",
-        },
-        {
-          status: 500,
-        }
-      );
+  return NextResponse.json(
+    {
+      error:
+        "Payment service is not configured.",
+    },
+    {
+      status: 500,
     }
+  );
+}
+
+const isProduction =
+  process.env.VERCEL_ENV ===
+  "production";
+
+if (
+  isProduction &&
+  subscriptionConfig.mode !==
+    "live"
+) {
+  console.error(
+    "Production reconciliation attempted with non-live Razorpay credentials."
+  );
+
+  return NextResponse.json(
+    {
+      error:
+        "Payment service configuration is invalid.",
+    },
+    {
+      status: 500,
+    }
+  );
+}
+
+if (
+  !isProduction &&
+  subscriptionConfig.mode ===
+    "live"
+) {
+  console.error(
+    "Live Razorpay credentials are not allowed outside production."
+  );
+
+  return NextResponse.json(
+    {
+      error:
+        "Payment service configuration is invalid.",
+    },
+    {
+      status: 500,
+    }
+  );
+}
+
+const razorpayKeyId =
+  subscriptionConfig.keyId;
+
+const razorpayKeySecret =
+  subscriptionConfig.keySecret;
 
     const auth =
       Buffer.from(

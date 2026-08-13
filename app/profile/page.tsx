@@ -947,14 +947,16 @@ function SubscriptionCard({
               {isPending && (
                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
                   <p className="text-sm font-bold text-amber-800">
-                    Payment is being retried.
-                  </p>
+  Your subscription payment is pending.
+</p>
 
-                  <p className="mt-1 text-sm leading-6 text-amber-700">
-                    Scholar access remains available
-                    temporarily while Razorpay retries
-                    the payment.
-                  </p>
+<p className="mt-1 text-sm leading-6 text-amber-700">
+  Scholar access remains available
+  temporarily while your subscription
+  status is being resolved. Use Sync
+  Subscription if you recently completed
+  or updated a payment.
+</p>
                 </div>
               )}
 
@@ -1046,7 +1048,7 @@ function SubscriptionCard({
 
                 <p className="mt-1 text-sm font-semibold text-slate-700">
                   {isPending
-                    ? "Your Scholar access remains available while payment is retried."
+                    ? "Your Scholar access remains available temporarily while your subscription status is being resolved."
                     : "Your Scholar subscription is active."}
                 </p>
               </div>

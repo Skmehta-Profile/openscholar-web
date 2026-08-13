@@ -15,6 +15,10 @@ import {
   getSubscriptionConfig,
 } from "@/lib/subscriptionConfig";
 
+import {
+  checkRateLimit,
+} from "@/lib/rateLimit";
+
 type BillingCycle =
   | "monthly"
   | "annual";
@@ -127,6 +131,44 @@ export async function POST(
 
     const user =
       authData.user;
+
+      /*
+  Basic abuse protection.
+
+  Rate-limit subscription creation
+  by the verified OpenScholar user,
+  never by a browser-supplied ID.
+*/
+
+const rateLimit =
+  checkRateLimit({
+    key:
+      `subscription-create:${user.id}`,
+
+    limit: 5,
+
+    windowMs:
+      10 * 60 * 1000,
+  });
+
+if (!rateLimit.allowed) {
+  return NextResponse.json(
+    {
+      error:
+        "Too many subscription attempts. Please wait before trying again.",
+    },
+    {
+      status: 429,
+
+      headers: {
+        "Retry-After":
+          String(
+            rateLimit.retryAfterSeconds
+          ),
+      },
+    }
+  );
+}
 
     /*
       2. Validate requested
