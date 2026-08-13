@@ -70,9 +70,36 @@ export default function RootLayout({
 
         {children}
 
-        <footer className="border-t border-slate-200 bg-white px-6 py-8 text-center text-sm text-slate-500">
-          OpenScholar-Web · Built in India · DVS Analytik
-        </footer>
+        <footer className="border-t border-slate-200 bg-white px-6 py-8 text-sm text-slate-500">
+  <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
+    <p className="text-center md:text-left">
+      OpenScholar-Web · Built in India · DVS Analytik
+    </p>
+
+    <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 font-semibold">
+      <Link
+        href="/terms"
+        className="transition hover:text-indigo-700"
+      >
+        Terms of Service
+      </Link>
+
+      <Link
+        href="/refund-policy"
+        className="transition hover:text-indigo-700"
+      >
+        Cancellation &amp; Refund Policy
+      </Link>
+
+      <Link
+        href="/privacy"
+        className="transition hover:text-indigo-700"
+      >
+        Privacy Policy
+      </Link>
+    </div>
+  </div>
+</footer>
       </body>
     </html>
   );

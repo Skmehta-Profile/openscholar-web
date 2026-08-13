@@ -287,6 +287,22 @@ export default function PricingPage() {
               <p className="mt-1 text-xs text-slate-400">
                 Annual billing offers better value.
               </p>
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 px-4 py-4">
+  <p className="text-xs font-bold leading-5 text-slate-300">
+    Scholar is a recurring subscription.
+    Monthly plans renew at ₹199 each month
+    and annual plans renew at ₹1,999 each
+    year unless cancelled.
+  </p>
+
+  <p className="mt-2 text-xs leading-5 text-slate-400">
+    Cancellation can be scheduled for the
+    end of the current billing period, so
+    Scholar access continues until that
+    period ends. Payments are processed
+    securely by Razorpay.
+  </p>
+</div>
             </div>
 
             <div className="mt-8 space-y-4">

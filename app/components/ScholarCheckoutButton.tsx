@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import {
   useState,
@@ -93,152 +94,151 @@ export default function ScholarCheckoutButton() {
     useState("");
 
   async function startCheckout() {
-  if (loading) {
-    return;
-  }
-
-  setLoading(true);
-  setMessage("");
-
-  try {
-    const loaded =
-      await loadRazorpayScript();
-
-    if (!loaded) {
-      setMessage(
-        "Unable to load the secure payment window. Please try again."
-      );
-
+    if (loading) {
       return;
     }
 
-    const {
-      data: sessionData,
-      error: sessionError,
-    } =
-      await supabase.auth.getSession();
+    setLoading(true);
+    setMessage("");
 
-    const accessToken =
-      sessionData.session?.access_token;
+    try {
+      const loaded =
+        await loadRazorpayScript();
 
-    if (
-      sessionError ||
-      !accessToken
-    ) {
-      setMessage(
-        "Please sign in before upgrading to Scholar."
-      );
+      if (!loaded) {
+        setMessage(
+          "Unable to load the secure payment window. Please try again."
+        );
 
-      return;
-    }
+        return;
+      }
 
-    const response =
-      await fetch(
-        "/api/subscriptions/create",
+      const {
+        data: sessionData,
+        error: sessionError,
+      } =
+        await supabase.auth.getSession();
+
+      const accessToken =
+        sessionData.session?.access_token;
+
+      if (
+        sessionError ||
+        !accessToken
+      ) {
+        setMessage(
+          "Please sign in before upgrading to Scholar."
+        );
+
+        return;
+      }
+
+      const response =
+        await fetch(
+          "/api/subscriptions/create",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${accessToken}`,
+            },
+
+            body: JSON.stringify({
+              billingCycle,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.subscriptionId ||
+        !data.keyId
+      ) {
+        throw new Error(
+          data.error ||
+            "Unable to create subscription."
+        );
+      }
+
+      const options: RazorpayOptions =
         {
-          method: "POST",
+          key: data.keyId,
 
-          headers: {
-            "Content-Type":
-              "application/json",
+          subscription_id:
+            data.subscriptionId,
 
-            Authorization:
-              `Bearer ${accessToken}`,
-          },
+          name:
+            "OpenScholar-Web",
 
-          body: JSON.stringify({
-            billingCycle,
-          }),
-        }
-      );
+          description:
+            billingCycle ===
+            "monthly"
+              ? "OpenScholar Scholar — Monthly"
+              : "OpenScholar Scholar — Annual",
 
-    const data =
-      await response.json();
-
-    if (
-      !response.ok ||
-      !data.subscriptionId ||
-      !data.keyId
-    ) {
-      throw new Error(
-        data.error ||
-          "Unable to create subscription."
-      );
-    }
-
-    const options: RazorpayOptions =
-      {
-        key: data.keyId,
-
-        subscription_id:
-          data.subscriptionId,
-
-        name:
-          "OpenScholar-Web",
-
-        description:
-          billingCycle ===
-          "monthly"
-            ? "OpenScholar Scholar — Monthly"
-            : "OpenScholar Scholar — Annual",
-
-        handler: (
-          paymentResponse
-        ) => {
-          console.log(
-            "Razorpay checkout completed:",
+          handler: (
             paymentResponse
-          );
-
-          setMessage(
-            "Payment completed. We are verifying your Scholar subscription."
-          );
-
-          /*
-            IMPORTANT:
-
-            Do not unlock Scholar here.
-
-            The browser callback is not
-            authoritative.
-
-            6C.3.4 will verify Razorpay
-            webhook events and update
-            openscholar_subscriptions
-            securely.
-          */
-        },
-
-        modal: {
-          ondismiss: () => {
-            setMessage(
-              "Payment window closed. No changes were made to your plan."
+          ) => {
+            console.log(
+              "Razorpay checkout completed:",
+              paymentResponse
             );
-          },
-        },
-      };
 
-    const razorpay =
-      new window.Razorpay(
-        options
+            setMessage(
+              "Payment completed. We are verifying your Scholar subscription."
+            );
+
+            /*
+              IMPORTANT:
+
+              Do not unlock Scholar here.
+
+              The browser callback is not
+              authoritative.
+
+              Webhook verification updates
+              the OpenScholar subscription
+              securely.
+            */
+          },
+
+          modal: {
+            ondismiss: () => {
+              setMessage(
+                "Payment window closed. No changes were made to your plan."
+              );
+            },
+          },
+        };
+
+      const razorpay =
+        new window.Razorpay(
+          options
+        );
+
+      razorpay.open();
+    } catch (error) {
+      console.error(
+        "Unable to start Razorpay checkout:",
+        error
       );
 
-    razorpay.open();
- } catch (error) {
-  console.error(
-    "Unable to start Razorpay checkout:",
-    error
-  );
-
-  setMessage(
-    error instanceof Error
-      ? error.message
-      : "Unable to start payment. Please try again."
-  );
-} finally {
-    setLoading(false);
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to start payment. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
   return (
     <div className="mt-9">
@@ -296,10 +296,39 @@ export default function ScholarCheckoutButton() {
             }`}
       </button>
 
-      <p className="mt-3 text-center text-xs font-semibold text-slate-400">
-        Secure payment powered by
-        Razorpay.
-      </p>
+      <div className="mt-3 text-center text-xs leading-5 text-slate-400">
+        <p className="font-semibold">
+          Secure payment powered by Razorpay.
+        </p>
+
+        <p className="mt-2">
+          By subscribing, you acknowledge the{" "}
+          <Link
+            href="/terms"
+            target="_blank"
+            className="font-bold text-slate-300 underline underline-offset-2 hover:text-white"
+          >
+            Terms of Service
+          </Link>
+          ,{" "}
+          <Link
+            href="/refund-policy"
+            target="_blank"
+            className="font-bold text-slate-300 underline underline-offset-2 hover:text-white"
+          >
+            Cancellation &amp; Refund Policy
+          </Link>{" "}
+          and{" "}
+          <Link
+            href="/privacy"
+            target="_blank"
+            className="font-bold text-slate-300 underline underline-offset-2 hover:text-white"
+          >
+            Privacy Policy
+          </Link>
+          .
+        </p>
+      </div>
 
       {message && (
         <p className="mt-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-center text-xs font-semibold leading-5 text-slate-300">
