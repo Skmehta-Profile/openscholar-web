@@ -364,25 +364,44 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-black text-slate-950">
-              12. Cookies and local storage
-            </h2>
+  <h2 className="text-xl font-black text-slate-950">
+    12. Browser storage, cookies and similar technologies
+  </h2>
 
-            <p className="mt-3">
-              OpenScholar-Web may use browser storage,
-              cookies or similar technologies where
-              necessary for authentication, security,
-              preferences, research-workspace
-              functionality or other features of the
-              service.
-            </p>
+  <p className="mt-3">
+    OpenScholar-Web uses browser storage for
+    functional purposes. This may include
+    maintaining authentication sessions and
+    supporting features such as search history,
+    recently viewed research and other
+    research-workspace preferences or state.
+  </p>
 
-            <p className="mt-3">
-              Additional information about these
-              technologies may be provided where
-              appropriate as the service develops.
-            </p>
-          </section>
+  <p className="mt-3">
+    OpenScholar-Web does not currently use
+    advertising cookies or third-party
+    behavioural advertising or analytics
+    trackers.
+  </p>
+
+  <p className="mt-3">
+    Third-party services used when you choose
+    to access particular functionality, such
+    as payment processing through Razorpay,
+    may use cookies, browser storage or similar
+    technologies in accordance with their own
+    privacy and security practices.
+  </p>
+
+  <p className="mt-3">
+    If OpenScholar-Web later introduces
+    non-essential analytics, advertising or
+    similar tracking technologies, this policy
+    and any consent mechanism required by
+    applicable law may be updated before or
+    when those technologies are introduced.
+  </p>
+</section>
 
           <section>
             <h2 className="text-xl font-black text-slate-950">
