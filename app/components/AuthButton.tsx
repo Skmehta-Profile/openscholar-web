@@ -5,6 +5,24 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import type { User } from "@supabase/supabase-js";
 
+function compactEmail(email?: string | null) {
+  if (!email) {
+    return "";
+  }
+
+  const [name, domain] = email.split("@");
+
+  if (!domain) {
+    return email;
+  }
+
+  if (name.length <= 8) {
+    return email;
+  }
+
+  return `${name.slice(0, 8)}…@${domain}`;
+}
+
 export default function AuthButton() {
   const [user, setUser] = useState<User | null>(null);
 
@@ -16,11 +34,10 @@ export default function AuthButton() {
 
     loadUser();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+    const { data: listener } =
+      supabase.auth.onAuthStateChange((_event, session) => {
         setUser(session?.user ?? null);
-      }
-    );
+      });
 
     return () => {
       listener.subscription.unsubscribe();
@@ -45,8 +62,11 @@ export default function AuthButton() {
 
   return (
     <div className="flex items-center gap-3">
-      <span className="max-w-[180px] truncate text-sm font-semibold text-slate-600">
-        {user.email}
+      <span
+        title={user.email ?? ""}
+        className="max-w-[170px] whitespace-nowrap text-sm font-semibold text-slate-600"
+      >
+        {compactEmail(user.email)}
       </span>
 
       <button
