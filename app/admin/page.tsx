@@ -1060,44 +1060,47 @@ export default function AdminDashboardPage() {
             }`}
           >
             <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-wide text-violet-700">
-                  Researcher Identity
-                </p>
+  <div>
+    <p className="text-xs font-black uppercase tracking-wide text-violet-700">
+      Researcher Identity
+    </p>
 
-                <h3 className="mt-3 text-xl font-black text-slate-950">
-                  Pending Profile Claims
-                </h3>
-              </div>
+    <h3 className="mt-3 text-xl font-black text-slate-950">
+      Pending Profile Claims
+    </h3>
+  </div>
 
-              <span
-                className={`flex h-12 min-w-12 items-center justify-center rounded-2xl px-3 text-xl font-black ${
-                  stats.pending_profile_claims > 0
-                    ? "bg-amber-100 text-amber-800"
-                    : "bg-emerald-100 text-emerald-700"
-                }`}
-              >
-                {stats.pending_profile_claims}
-              </span>
-            </div>
+  <span
+    className={`flex h-12 min-w-12 items-center justify-center rounded-2xl px-3 text-xl font-black ${
+      stats.pending_profile_claims > 0
+        ? "bg-amber-100 text-amber-800"
+        : "bg-emerald-100 text-emerald-700"
+    }`}
+  >
+    {stats.pending_profile_claims}
+  </span>
+</div>
 
-            <p className="mt-4 text-sm leading-6 text-slate-500">
-              Researcher profile ownership claims currently
-              waiting for administrative verification.
-            </p>
+<p className="mt-4 text-sm leading-6 text-slate-500">
+  Researcher profile ownership claims currently
+  waiting for administrative verification.
+</p>
 
-            {stats.pending_profile_claims === 0 && (
-              <p className="mt-5 text-sm font-bold text-emerald-700">
-                ✓ No pending claims
-              </p>
-            )}
+{stats.pending_profile_claims === 0 && (
+  <p className="mt-5 text-sm font-bold text-emerald-700">
+    ✓ No pending claims
+  </p>
+)}
 
-            {stats.pending_profile_claims > 0 && (
-              <p className="mt-5 text-sm font-bold text-amber-700">
-                Review required
-              </p>
-            )}
-          </div>
+{stats.pending_profile_claims > 0 && (
+  <Link
+    href="/admin/profile-claims"
+    className="mt-5 inline-flex items-center text-sm font-black text-indigo-700 transition hover:text-indigo-900"
+  >
+    Review Profile Claims →
+  </Link>
+)}
+</div>
 
           {/* REJECTED CLAIMS */}
 
