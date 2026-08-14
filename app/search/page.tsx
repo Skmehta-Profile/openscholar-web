@@ -5,6 +5,9 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { getMyEntitlements } from "@/lib/entitlements";
 import CitationDialog from "@/app/components/CitationDialog";
+import {
+  cleanScholarlyText,
+} from "@/lib/scholarlyText";
 
 type SearchResult = {
   id: string;
@@ -1942,7 +1945,9 @@ if (
             paper.id,
 
           title:
-            paper.title,
+  cleanScholarlyText(
+    paper.title
+  ),
 
           authors:
             paper.authors,
@@ -2332,10 +2337,10 @@ if (
                       className="min-w-0 flex-1 text-left"
                     >
                       <p className="font-bold leading-6 text-slate-950">
-                        {
-                          paper.title
-                        }
-                      </p>
+  {cleanScholarlyText(
+    paper.title
+  )}
+</p>
 
                       <p className="mt-1 truncate text-sm text-slate-500">
                         {
@@ -2484,15 +2489,13 @@ if (
                 {recommendationBasis.map(
                   (title) => (
                     <span
-                      key={
-                        title
-                      }
-                      className="max-w-full truncate rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700"
-                    >
-                      {
-                        title
-                      }
-                    </span>
+  key={title}
+  className="max-w-full truncate rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700"
+>
+  {cleanScholarlyText(
+    title
+  )}
+</span>
                   )
                 )}
               </div>
@@ -2555,10 +2558,10 @@ if (
                     </div>
 
                     <h3 className="mt-4 text-lg font-black leading-7 text-slate-950">
-                      {
-                        paper.title
-                      }
-                    </h3>
+  {cleanScholarlyText(
+    paper.title
+  )}
+</h3>
 
                     <p className="mt-2 line-clamp-2 text-sm text-slate-500">
                       {
@@ -3412,10 +3415,10 @@ if (
               </div>
 
               <h2 className="mt-4 text-xl font-black leading-snug text-slate-950">
-                {
-                  paper.title
-                }
-              </h2>
+  {cleanScholarlyText(
+    paper.title
+  )}
+</h2>
 
               <p className="mt-2 text-sm text-slate-500">
                 {
@@ -3865,10 +3868,10 @@ if (
                 </p>
 
                 <h2 className="mt-3 text-2xl font-black leading-snug text-slate-950">
-                  {
-                    previewPaper.title
-                  }
-                </h2>
+  {cleanScholarlyText(
+    previewPaper.title
+  )}
+</h2>
               </div>
 
               <button
@@ -4126,10 +4129,10 @@ if (
                 </p>
 
                 <h2 className="mt-3 text-3xl font-black leading-snug text-slate-950">
-                  {
-                    selectedPaper.title
-                  }
-                </h2>
+  {cleanScholarlyText(
+    selectedPaper.title
+  )}
+</h2>
               </div>
 
               <button

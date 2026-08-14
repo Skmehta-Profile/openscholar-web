@@ -14,6 +14,9 @@ import {
   getMyEntitlements,
   type OpenScholarPlan,
 } from "@/lib/entitlements";
+import {
+  cleanScholarlyText,
+} from "@/lib/scholarlyText";
 
 type SavedArticle = {
   id: string;
@@ -64,9 +67,11 @@ type WorkspaceItem = {
   updated_at: string;
 };
 
-function cleanText(value: string | null) {
-  return (
-    value?.replace(/<[^>]+>/g, "") || ""
+function cleanText(
+  value: string | null
+) {
+  return cleanScholarlyText(
+    value
   );
 }
 
