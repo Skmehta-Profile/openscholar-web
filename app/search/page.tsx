@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { getMyEntitlements } from "@/lib/entitlements";
+import CitationDialog from "@/app/components/CitationDialog";
 
 type SearchResult = {
   id: string;
@@ -285,6 +286,11 @@ export default function SearchPage() {
     showAllAuthorResults,
     setShowAllAuthorResults,
   ] = useState(false);
+
+  const [
+  citationArticle,
+  setCitationArticle,
+] = useState<any | null>(null);
 
   /* ============================================
      RESEARCH ALERTS
@@ -2022,6 +2028,13 @@ if (
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
+      <CitationDialog
+  open={Boolean(citationArticle)}
+  article={citationArticle}
+  onClose={() =>
+    setCitationArticle(null)
+  }
+/>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-4xl font-black text-slate-950">
@@ -3508,11 +3521,14 @@ if (
                 </button>
 
                 <button
-                  type="button"
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold transition hover:border-indigo-300 hover:bg-indigo-50/40"
-                >
-                  Cite
-                </button>
+  type="button"
+  onClick={() =>
+    setCitationArticle(paper)
+  }
+  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-bold transition hover:border-indigo-300 hover:bg-indigo-50/40"
+>
+  Cite
+</button>
               </div>
             </article>
           )
@@ -4421,5 +4437,6 @@ if (
         </div>
       )}
     </main>
+
   );
 }
