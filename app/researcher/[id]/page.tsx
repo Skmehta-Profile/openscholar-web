@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { getMyEntitlements } from "@/lib/entitlements";
 import type { User } from "@supabase/supabase-js";
 import AddPublicationDialog from "@/app/components/AddPublicationDialog";
+import ResearcherPhotoUpload from "@/app/components/ResearcherPhotoUpload";
 
 type Institution = {
   id: string;
@@ -155,6 +156,7 @@ type ResearcherClaim = {
   claimed_at: string;
   verified_at: string | null;
   updated_at: string;
+  profile_photo_url: string | null;
 };
 
 type PublicationExclusion = {
@@ -2623,8 +2625,18 @@ const alternativeNames =
   <div className="p-7 md:p-10">
     <div className="flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
       <div className="flex flex-col gap-6 sm:flex-row">
-        <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[2rem] bg-gradient-to-br from-indigo-700 to-violet-600 text-4xl font-black text-white shadow-xl">
-          {initials}
+        <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-[2rem] bg-gradient-to-br from-indigo-700 to-violet-600 shadow-xl">
+          {claim?.profile_photo_url ? (
+            <img
+              src={claim.profile_photo_url}
+              alt={profile.name}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-4xl font-black text-white">
+              {initials}
+            </div>
+          )}
         </div>
 
         <div className="min-w-0">
@@ -2740,18 +2752,34 @@ const alternativeNames =
       </button>
     </div>
   ) : claim.claim_status === "verified" ? (
-    <div className="flex flex-wrap items-center gap-2">
-  <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800">
-    ✓ Profile owner
-  </span>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800">
+          ✓ Profile owner
+        </span>
 
-  <Link
-    href={`/researcher/${researcherId}/manage`}
-    className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-indigo-800"
-  >
-    Publication Manager
-  </Link>
-</div>
+        <Link
+          href={`/researcher/${researcherId}/manage`}
+          className="rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-indigo-800"
+        >
+          Publication Manager
+        </Link>
+      </div>
+
+      {user && claim && (
+        <ResearcherPhotoUpload
+          user={user}
+          claimId={claim.id}
+          currentPhotoUrl={claim.profile_photo_url}
+          onPhotoUpdated={(newUrl) => {
+            setClaim({
+              ...claim,
+              profile_photo_url: newUrl,
+            });
+          }}
+        />
+      )}
+    </div>
   ) : (
     <button
       type="button"
