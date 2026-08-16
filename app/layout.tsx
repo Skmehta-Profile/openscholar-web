@@ -9,8 +9,34 @@ import BrowserStorageNotice from "./components/BrowserStorageNotice";
 import MainNavLinks from "./components/MainNavLinks";
 
 export const metadata: Metadata = {
-  title: "OpenScholar-Web",
-  description: "Research Discovery Platform",
+  metadataBase: new URL("https://openscholar.dvsanalytik.com"),
+  title: {
+    default: "OpenScholar-Web | Research Discovery Platform",
+    template: "%s | OpenScholar-Web",
+  },
+  description:
+    "Search scholarly literature, discover researchers, save papers, organize collections, manage research workflows, and track new research with OpenScholar-Web.",
+  openGraph: {
+    type: "website",
+    siteName: "OpenScholar-Web",
+    title: "OpenScholar-Web | Research Discovery Platform",
+    description:
+      "Search scholarly literature, discover researchers, save papers, organize collections, manage research workflows, and track new research with OpenScholar-Web.",
+    url: "https://openscholar.dvsanalytik.com",
+    images: [
+      {
+        url: "/openscholar-logo.png",
+        alt: "OpenScholar-Web logo",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "OpenScholar-Web | Research Discovery Platform",
+    description:
+      "Search scholarly literature, discover researchers, save papers, organize collections, manage research workflows, and track new research with OpenScholar-Web.",
+    images: ["/openscholar-logo.png"],
+  },
 };
 
 export default function RootLayout({
