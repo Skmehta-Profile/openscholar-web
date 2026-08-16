@@ -16,6 +16,10 @@ export const metadata: Metadata = {
   },
   description:
     "Search scholarly literature, discover researchers, save papers, organize collections, manage research workflows, and track new research with OpenScholar-Web.",
+  verification: {
+    google:
+      "j_xfNSi5Mh2VRFvdQv8RHe3JTnBIQUqXmPr_l8tAMBg",
+  },
   openGraph: {
     type: "website",
     siteName: "OpenScholar-Web",
