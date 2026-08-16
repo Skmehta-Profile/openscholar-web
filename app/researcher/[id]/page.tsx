@@ -1477,7 +1477,7 @@ useEffect(() => {
     window.location.hostname === "localhost" ||
     window.location.hostname === "127.0.0.1"
   ) {
-    return `https://openscholar-web.vercel.app/researcher/${researcherId}`;
+    return `https://openscholar.dvsanalytik.com/researcher/${researcherId}`;
   }
 
   return window.location.href;
