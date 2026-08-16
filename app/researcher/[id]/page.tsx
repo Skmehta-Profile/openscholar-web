@@ -111,6 +111,24 @@ type ResearcherResponse = {
   publicationMeta: PublicationMeta;
 };
 
+function canonicalOrcidUrl(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const cleanValue = value.trim();
+
+  if (cleanValue.startsWith("https://orcid.org/")) {
+    return cleanValue;
+  }
+
+  if (/^\d{4}-\d{4}-\d{4}-[\dX]{4}$/i.test(cleanValue)) {
+    return `https://orcid.org/${cleanValue}`;
+  }
+
+  return null;
+}
+
 type PublicationTab = "latest" | "cited";
 
 type PublicationSort =
@@ -2575,6 +2593,63 @@ if (error || !data) {
     profile.institutions
   );
 
+  const orcidUrl = canonicalOrcidUrl(
+    profile.orcid
+  );
+  const profileUrl = `https://openscholar.dvsanalytik.com/researcher/${encodeURIComponent(
+    profile.id
+  )}`;
+  const sameAs = [
+    profile.openAlexUrl,
+    orcidUrl,
+  ].filter(
+    (value): value is string => Boolean(value)
+  );
+  const identifiers = [
+    {
+      "@type": "PropertyValue",
+      propertyID: "OpenAlex",
+      value: profile.id,
+    },
+    ...(orcidUrl
+      ? [
+          {
+            "@type": "PropertyValue",
+            propertyID: "ORCID",
+            value: orcidUrl,
+          },
+        ]
+      : []),
+  ];
+  const personJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: profile.name,
+    url: profileUrl,
+    ...(institutions.length > 0
+      ? {
+          affiliation: institutions.map(
+            (institution) => ({
+              "@type": "Organization",
+              name: institution.name,
+            })
+          ),
+        }
+      : {}),
+    ...(sameAs.length > 0 ? { sameAs } : {}),
+    ...(profile.topics.length > 0
+      ? { knowsAbout: profile.topics.slice(0, 6) }
+      : {}),
+    identifier: identifiers,
+    description: `Researcher profile for ${profile.name}${
+      profile.affiliation &&
+      profile.affiliation !==
+        "Affiliation not available"
+        ? ` at ${profile.affiliation}`
+        : ""
+    }, including ${profile.worksCount.toLocaleString()} publications and ${profile.citedByCount.toLocaleString()} citations on OpenScholar-Web.`,
+  };
+
  const openAlexVisibleCount =
   curatedPublications.length;
 
@@ -2611,7 +2686,18 @@ const alternativeNames =
   
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-12">
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(personJsonLd).replace(
+            /</g,
+            "\\u003c"
+          ),
+        }}
+      />
+
+      <main className="mx-auto max-w-7xl px-6 py-12">
       <div className="mb-6 print:hidden">
         <Link
           href="/search"
@@ -4384,6 +4470,7 @@ const alternativeNames =
           </p>
         )}
       </section>
-    </main>
+      </main>
+    </>
   );
 }
