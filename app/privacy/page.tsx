@@ -213,6 +213,47 @@ export default function PrivacyPage() {
             </p>
 
             <p className="mt-3">
+              OpenScholar-Web may also use essential
+              browser storage to maintain
+              authentication and session continuity.
+              This includes maintaining signed-in
+              state for supported features and
+              retaining locally stored information
+              such as recent searches and recently
+              viewed research items to improve
+              usability on the device used to access
+              the service.
+            </p>
+
+            <p className="mt-3">
+              OpenScholar-Web uses Supabase for
+              authentication and related data
+              services, and the browser may store a
+              local Supabase authentication token to
+              keep the user session available across
+              refreshes and navigations.
+            </p>
+
+            <p className="mt-3">
+              When a user initiates subscription or
+              payment processing, the Razorpay
+              checkout script may be loaded from the
+              Razorpay domain to support secure
+              payment processing. OpenScholar-Web does
+              not currently use advertising pixels or
+              behavioural-advertising trackers.
+            </p>
+
+            <p className="mt-3">
+              Browser storage may be cleared through
+              the user&apos;s browser settings. Clearing
+              essential authentication storage may sign
+              the user out or reset locally stored
+              preferences, recent-search history and
+              recently viewed items.
+            </p>
+
+            <p className="mt-3">
               Researcher names, affiliations,
               publications, citation information and
               other scholarly metadata may therefore
