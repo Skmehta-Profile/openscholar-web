@@ -27,7 +27,7 @@ export default function SignInPage() {
     setMessage(
       error
         ? error.message
-        : "Sign-in link sent. Please check your email and click the latest link."
+        : "Sign-in link sent. Check your inbox for an email from OpenScholar. If you don't see it within a minute, please check your Spam or Junk folder."
     );
 
     setLoading(false);
