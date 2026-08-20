@@ -53,7 +53,7 @@ export default function RootLayout({
       <body className="bg-[#f7f9fc] text-slate-950">
         <BrowserStorageNotice />
 
-        <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
+        <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur-xl print:hidden">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
             <Link
               href="/"
@@ -90,7 +90,7 @@ export default function RootLayout({
 
         {children}
 
-        <footer className="border-t border-slate-200 bg-white px-6 py-8 text-sm text-slate-500">
+        <footer className="border-t border-slate-200 bg-white px-6 py-8 text-sm text-slate-500 print:hidden">
           <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 md:flex-row">
             <p className="text-center md:text-left">
               OpenScholar-Web · Built in India · DVS Analytik

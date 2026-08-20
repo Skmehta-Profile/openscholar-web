@@ -24,3 +24,35 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/*
+  Professional print modes for researcher profiles (milestone 6D.1.6c).
+  Print-only sections are always hidden on screen (see `hidden` utility
+  in markup) and only revealed here for the matching print mode.
+*/
+@media print {
+  @page {
+    margin: 16mm 14mm;
+  }
+
+  body[data-print-mode="full"] .print-section-full {
+    display: block;
+  }
+
+  body[data-print-mode="publications"] .print-section-publications {
+    display: block;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+  }
+}
+
