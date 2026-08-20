@@ -9,6 +9,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { supabase } from "@/lib/supabaseClient";
 import { getMyEntitlements } from "@/lib/entitlements";
+import { cleanScholarlyText } from "@/lib/scholarlyText";
 import type { User } from "@supabase/supabase-js";
 import AddPublicationDialog from "@/app/components/AddPublicationDialog";
 import ResearcherPhotoUpload from "@/app/components/ResearcherPhotoUpload";
@@ -146,6 +147,12 @@ type PublicationSort =
   | "text";
 
 type ExportScope = "all" | "current";
+
+/*
+  Extension point: add "selected" once a selected-publications
+  print workflow is implemented — no refactor required elsewhere.
+*/
+type PrintMode = "full" | "publications";
 
 type ClaimStatus =
   | "pending"
@@ -714,6 +721,126 @@ function uniqueInstitutions(
   });
 }
 
+type PrintYearGroup = {
+  year: number | null;
+  publications: Publication[];
+};
+
+function groupPublicationsByYear(
+  publications: Publication[]
+): PrintYearGroup[] {
+  const sorted = [...publications].sort((a, b) => {
+    const yearDiff = (b.year || 0) - (a.year || 0);
+
+    if (yearDiff !== 0) {
+      return yearDiff;
+    }
+
+    return a.title.localeCompare(b.title);
+  });
+
+  const groups: PrintYearGroup[] = [];
+
+  sorted.forEach((publication) => {
+    const lastGroup = groups[groups.length - 1];
+
+    if (lastGroup && lastGroup.year === publication.year) {
+      lastGroup.publications.push(publication);
+      return;
+    }
+
+    groups.push({
+      year: publication.year,
+      publications: [publication],
+    });
+  });
+
+  return groups;
+}
+
+/*
+  Collapses accidental duplicate punctuation from source
+  metadata (e.g. "medicine.." -> "medicine.") in print output only.
+*/
+function normalizePrintPunctuation(value: string) {
+  return value.replace(/([.,;:!?])\1+/g, "$1");
+}
+
+function printText(value: string | null | undefined) {
+  return normalizePrintPunctuation(
+    cleanScholarlyText(value)
+  );
+}
+
+function renderPrintPublicationGroups(
+  groups: PrintYearGroup[]
+) {
+  let counter = 0;
+
+  return groups.map((group) => (
+    <div
+      key={group.year ?? "unknown-year"}
+      className="print-avoid-break mb-4"
+    >
+      <p className="mb-2 border-b border-slate-200 pb-1 text-xs font-black uppercase tracking-wide text-slate-700">
+        {group.year ?? "Year not available"}
+      </p>
+
+      {group.publications.map((publication) => {
+        counter += 1;
+
+        const sourceLine = [
+          printText(publication.journal),
+          publication.biblio &&
+          publication.biblio !==
+            "Bibliographic details not available"
+            ? printText(publication.biblio)
+            : "",
+        ]
+          .filter(Boolean)
+          .join(", ");
+
+        return (
+          <div
+            key={publication.id}
+            className="print-avoid-break mb-2 text-[11px] leading-5 text-slate-800"
+          >
+            <p className="font-bold text-slate-950">
+              {counter}. {printText(publication.title)}
+            </p>
+
+            <p className="text-slate-700">
+              {printText(publication.authors) ||
+                "Authors not available"}
+            </p>
+
+            <p className="text-slate-700">
+              {sourceLine}
+              {publication.year
+                ? ` (${publication.year})`
+                : ""}
+              {publication.doi
+                ? ` · DOI: ${normaliseDoi(
+                    publication.doi
+                  )}`
+                : ""}
+            </p>
+
+            <p className="text-[10px] text-slate-500">
+              Citations:{" "}
+              {publication.citations.toLocaleString()}
+              {publication.manuallyAdded
+                ? " · Curated"
+                : ""}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  ));
+}
+
+
 function AnalyticsBar({
   label,
   value,
@@ -942,6 +1069,8 @@ const [showShareMenu, setShowShareMenu] =
   useState(false);
 const [showQrDialog, setShowQrDialog] =
   useState(false);
+const [showPrintMenu, setShowPrintMenu] =
+  useState(false);
   const [exportFormat, setExportFormat] =
   useState<ExportFormat>("csv");
 
@@ -1041,6 +1170,12 @@ const [
 
 const [additionMessage, setAdditionMessage] =
   useState("");
+
+useEffect(() => {
+  if (!document.body.dataset.printMode) {
+    document.body.dataset.printMode = "full";
+  }
+}, []);
 
   useEffect(() => {
     async function loadResearcher() {
@@ -1519,6 +1654,12 @@ useEffect(() => {
   }
 
   return window.location.href;
+}
+
+  function triggerPrint(mode: PrintMode) {
+  document.body.dataset.printMode = mode;
+  setShowPrintMenu(false);
+  window.print();
 }
 
   async function copyProfileLink() {
@@ -2519,6 +2660,14 @@ const analytics = useMemo(() => {
   };
 }, [analyticsPublications, data]);
 
+const printPublications = useMemo(
+  () =>
+    groupPublicationsByYear(
+      analyticsPublications
+    ),
+  [analyticsPublications]
+);
+
 if (loading) {
   return (
     <main className="mx-auto max-w-7xl px-6 py-16">
@@ -2717,7 +2866,7 @@ const alternativeNames =
         }}
       />
 
-      <main className="mx-auto max-w-7xl px-6 py-12">
+      <main className="mx-auto max-w-7xl px-6 py-12 print:hidden">
       <div className="mb-6 print:hidden">
         <Link
           href="/search"
@@ -2923,13 +3072,48 @@ const alternativeNames =
           Copy Link
         </button>
 
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
-        >
-          Print Profile
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() =>
+              setShowPrintMenu(
+                (current) => !current
+              )
+            }
+            aria-expanded={showPrintMenu}
+            className="rounded-xl bg-indigo-700 px-5 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
+          >
+            Print Profile
+          </button>
+
+          {showPrintMenu && (
+            <div className="absolute right-0 top-full z-40 mt-3 w-60 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+              <p className="px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-400">
+                Print mode
+              </p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  triggerPrint("full")
+                }
+                className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-indigo-50"
+              >
+                Full Profile
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  triggerPrint("publications")
+                }
+                className="w-full rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-indigo-50"
+              >
+                Publications Only
+              </button>
+            </div>
+          )}
+        </div>
 
         {showShareMenu && (
           <div className="absolute right-0 top-full z-40 mt-3 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
@@ -4491,6 +4675,254 @@ const alternativeNames =
         )}
       </section>
       </main>
+
+      {/* Print-only: Full Researcher Profile. Hidden on screen; shown only when data-print-mode="full". */}
+      <div className="print-section-full hidden">
+        <header className="print-avoid-break mb-5 flex items-end justify-between border-b-2 border-slate-900 pb-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+              OpenScholar-Web
+            </p>
+            <h1 className="text-lg font-black text-slate-950">
+              Researcher Profile
+            </h1>
+          </div>
+          <p className="text-[10px] text-slate-500">
+            Printed {formatDate(new Date().toISOString())}
+          </p>
+        </header>
+
+        <section className="print-avoid-break mb-5 flex items-start gap-4">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-300 bg-slate-100 text-lg font-black text-slate-700">
+            {claim?.profile_photo_url ? (
+              <img
+                src={claim.profile_photo_url}
+                alt={profile.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              initials
+            )}
+          </div>
+
+          <div className="min-w-0">
+            <h2 className="text-xl font-black text-slate-950">
+              {printText(profile.name)}
+            </h2>
+            <p className="text-sm font-semibold text-slate-700">
+              {printText(profile.affiliation)}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              OpenAlex ID: {profile.id}
+              {orcidUrl ? ` · ORCID: ${orcidUrl}` : ""}
+            </p>
+          </div>
+        </section>
+
+        <section className="print-avoid-break mb-5 grid grid-cols-5 gap-2 border-y border-slate-300 py-3 text-center">
+          <div>
+            <p className="text-[9px] font-bold uppercase text-slate-500">
+              h-index
+            </p>
+            <p className="text-base font-black text-slate-950">
+              {profile.hIndex}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-bold uppercase text-slate-500">
+              Publications
+            </p>
+            <p className="text-base font-black text-slate-950">
+              {profile.worksCount.toLocaleString()}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-bold uppercase text-slate-500">
+              Total Citations
+            </p>
+            <p className="text-base font-black text-slate-950">
+              {profile.citedByCount.toLocaleString()}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-bold uppercase text-slate-500">
+              Avg. Citations
+            </p>
+            <p className="text-base font-black text-slate-950">
+              {averageCitations.toFixed(1)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[9px] font-bold uppercase text-slate-500">
+              i10-index
+            </p>
+            <p className="text-base font-black text-slate-950">
+              {profile.i10Index}
+            </p>
+          </div>
+        </section>
+
+        {profile.topics.length > 0 && (
+          <section className="print-avoid-break mb-5">
+            <p className="mb-1 text-xs font-black uppercase tracking-wide text-slate-700">
+              Expertise / Research Areas
+            </p>
+            <p className="text-[11px] leading-5 text-slate-700">
+              {profile.topics.map(printText).join(" · ")}
+            </p>
+          </section>
+        )}
+
+        {institutions.length > 0 && (
+          <section className="print-avoid-break mb-5">
+            <p className="mb-1 text-xs font-black uppercase tracking-wide text-slate-700">
+              Institutional Affiliations
+            </p>
+            <p className="text-[11px] leading-5 text-slate-700">
+              {institutions
+                .map((institution) =>
+                  [printText(institution.name), institution.countryCode]
+                    .filter(Boolean)
+                    .join(" — ")
+                )
+                .join(" · ")}
+            </p>
+          </section>
+        )}
+
+        <section className="print-avoid-break mb-5">
+          <p className="mb-1 text-xs font-black uppercase tracking-wide text-slate-700">
+            Profile Curation Summary
+          </p>
+          <p className="text-[11px] leading-5 text-slate-700">
+            OpenAlex visible: {openAlexVisibleCount.toLocaleString()} ·
+            Curated additions: {researcherAddedCount.toLocaleString()} ·
+            Hidden records: {excludedWorkIds.size.toLocaleString()} ·
+            Public profile total: {displayedPublicationCount.toLocaleString()}
+          </p>
+        </section>
+
+        <section className="print-avoid-break mb-5">
+          <p className="mb-1 text-xs font-black uppercase tracking-wide text-slate-700">
+            Research Analytics Highlights
+          </p>
+          <p className="text-[11px] leading-5 text-slate-700">
+            Career span:{" "}
+            {analytics.activeYears
+              ? `${analytics.activeYears} years`
+              : "not available"}{" "}
+            · Open access: {analytics.openAccessRate.toFixed(1)}% ·
+            Top paper:{" "}
+            {analytics.highestCitedPaper
+              ? `${analytics.highestCitedPaper.citations.toLocaleString()} citations`
+              : "not available"}{" "}
+            · Publication types: {analytics.publicationTypes.length}
+          </p>
+        </section>
+
+        {analytics.topJournals.length > 0 && (
+          <section className="print-avoid-break mb-5">
+            <p className="mb-1 text-xs font-black uppercase tracking-wide text-slate-700">
+              Top Journals
+            </p>
+            <p className="text-[11px] leading-5 text-slate-700">
+              {analytics.topJournals
+                .slice(0, 5)
+                .map((item) => `${printText(item.label)} (${item.count})`)
+                .join(" · ")}
+            </p>
+          </section>
+        )}
+
+        {analytics.topCollaborators.length > 0 && (
+          <section className="print-avoid-break mb-5">
+            <p className="mb-1 text-xs font-black uppercase tracking-wide text-slate-700">
+              Top Collaborators
+            </p>
+            <p className="text-[11px] leading-5 text-slate-700">
+              {analytics.topCollaborators
+                .slice(0, 5)
+                .map((item) => `${printText(item.name)} (${item.publications})`)
+                .join(" · ")}
+            </p>
+          </section>
+        )}
+
+        {analytics.topCitedPublications.length > 0 && (
+          <section className="print-avoid-break mb-6">
+            <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-700">
+              Top Cited Publications
+            </p>
+            {analytics.topCitedPublications
+              .slice(0, 5)
+              .map((publication, index) => (
+                <p
+                  key={publication.id}
+                  className="print-avoid-break mb-1 text-[11px] leading-5 text-slate-800"
+                >
+                  <span className="font-bold">
+                    {index + 1}.
+                  </span>{" "}
+                  {printText(publication.title)} —{" "}
+                  {publication.citations.toLocaleString()} citations
+                </p>
+              ))}
+          </section>
+        )}
+
+        <section>
+          <p className="mb-2 border-b-2 border-slate-900 pb-1 text-sm font-black uppercase tracking-wide text-slate-900">
+            Complete Publications List (
+            {analyticsPublications.length.toLocaleString()})
+          </p>
+          {renderPrintPublicationGroups(printPublications)}
+        </section>
+
+        <footer className="print-footer mt-4 border-t border-slate-300 pt-2 text-[9px] text-slate-500">
+          OpenScholar-Web · openscholar.dvsanalytik.com ·{" "}
+          {printText(profile.name)}
+        </footer>
+      </div>
+
+      {/* Print-only: Publications Only. Hidden on screen; shown only when data-print-mode="publications". */}
+      <div className="print-section-publications hidden">
+        <header className="print-avoid-break mb-5 border-b-2 border-slate-900 pb-3">
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                OpenScholar-Web
+              </p>
+              <h1 className="text-lg font-black text-slate-950">
+                {printText(profile.name)}
+              </h1>
+              <p className="text-[11px] text-slate-600">
+                {printText(profile.affiliation)}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-500">
+                OpenAlex ID: {profile.id}
+                {orcidUrl ? ` · ORCID: ${orcidUrl}` : ""}
+              </p>
+            </div>
+            <p className="text-[10px] text-slate-500">
+              Printed {formatDate(new Date().toISOString())}
+            </p>
+          </div>
+
+          <p className="mt-2 text-xs font-black uppercase tracking-wide text-slate-900">
+            Complete Publications List ·{" "}
+            {analyticsPublications.length.toLocaleString()} publications
+          </p>
+        </header>
+
+        <section>
+          {renderPrintPublicationGroups(printPublications)}
+        </section>
+
+        <footer className="print-footer mt-4 border-t border-slate-300 pt-2 text-[9px] text-slate-500">
+          OpenScholar-Web · openscholar.dvsanalytik.com ·{" "}
+          {printText(profile.name)}
+        </footer>
+      </div>
     </>
   );
 }
