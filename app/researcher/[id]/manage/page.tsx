@@ -598,19 +598,41 @@ const [managerError, setManagerError] =
             []) as PublicationExclusion[]
         );
       } catch (loadError) {
-        console.error(
-          "Publication Manager loading failed:",
-          loadError
-        );
+  console.error(
+    "Publication Manager loading failed:",
+    loadError
+  );
 
-        if (mounted) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Unable to load the Publication Manager."
-          );
-        }
-      } finally {
+  let errorMessage =
+    "Unable to load the Publication Manager.";
+
+  if (loadError instanceof Error) {
+    errorMessage =
+      loadError.message;
+  } else if (
+    loadError &&
+    typeof loadError ===
+      "object" &&
+    "message" in
+      loadError
+  ) {
+    errorMessage =
+      String(
+        (
+          loadError as {
+            message?: unknown;
+          }
+        ).message ||
+          errorMessage
+      );
+  }
+
+  if (mounted) {
+    setError(
+      errorMessage
+    );
+  }
+} finally {
         if (mounted) {
           setLoading(false);
         }
