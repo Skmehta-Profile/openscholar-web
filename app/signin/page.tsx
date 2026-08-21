@@ -44,6 +44,10 @@ export default function SignInPage() {
           Sign in with Email
         </h1>
 
+        <p className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+          Free to create an account. No credit card required.
+        </p>
+
         <p className="mt-3 leading-7 text-slate-500">
           Enter your email. OpenScholar will send a secure sign-in link.
         </p>
@@ -62,7 +66,7 @@ export default function SignInPage() {
             disabled={loading}
             className="w-full rounded-2xl bg-indigo-700 px-6 py-4 font-bold text-white transition hover:bg-indigo-800 disabled:opacity-60"
           >
-            {loading ? "Sending..." : "Send Sign-In Link"}
+            {loading ? "Sending..." : "Continue with Email"}
           </button>
         </div>
 
