@@ -2,13 +2,17 @@ import type { NextConfig } from "next";
 
 const isProduction = process.env.NODE_ENV === "production";
 
+const scriptSrc = isProduction
+  ? "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com"
+  : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://checkout.razorpay.com";
+
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'self'",
   "form-action 'self'",
-  "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com",
+  scriptSrc,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.supabase.co https://*.supabase.io https://*.razorpay.com",
   "font-src 'self' data:",
