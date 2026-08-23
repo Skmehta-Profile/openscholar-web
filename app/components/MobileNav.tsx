@@ -20,9 +20,23 @@ export default function MobileNav() {
         aria-expanded={open}
         aria-label={open ? "Close navigation menu" : "Open navigation menu"}
         onClick={() => setOpen((isOpen) => !isOpen)}
-        className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50"
+        className="rounded-xl border border-slate-400 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50"
       >
-        {open ? "Close" : "Menu"}
+        {open ? (
+          "Close"
+        ) : (
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="flex w-4 flex-col gap-1"
+            >
+              <span className="h-0.5 w-full bg-slate-700" />
+              <span className="h-0.5 w-full bg-slate-700" />
+              <span className="h-0.5 w-full bg-slate-700" />
+            </span>
+            <span>Menu</span>
+          </span>
+        )}
       </button>
 
       {open && (
