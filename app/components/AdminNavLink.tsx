@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function AdminNavLink() {
+export default function AdminNavLink({
+  onNavigate,
+}: {
+  onNavigate?: () => void;
+}) {
   const [isAdmin, setIsAdmin] =
     useState(false);
 
@@ -90,6 +94,7 @@ export default function AdminNavLink() {
   return (
     <Link
       href="/admin"
+      onClick={onNavigate}
       className="font-bold text-indigo-700 transition hover:text-indigo-900"
     >
       Admin

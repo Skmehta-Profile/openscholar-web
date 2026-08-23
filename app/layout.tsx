@@ -7,6 +7,7 @@ import AuthButton from "./components/AuthButton";
 import AdminNavLink from "./components/AdminNavLink";
 import BrowserStorageNotice from "./components/BrowserStorageNotice";
 import MainNavLinks from "./components/MainNavLinks";
+import MobileNav from "./components/MobileNav";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://openscholar.dvsanalytik.com"),
@@ -85,6 +86,8 @@ export default function RootLayout({
 
               <AuthButton />
             </div>
+
+            <MobileNav />
           </div>
         </nav>
 

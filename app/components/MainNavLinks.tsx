@@ -54,11 +54,17 @@ function isActivePath(
   );
 }
 
-export default function MainNavLinks() {
+export default function MainNavLinks({
+  containerClassName,
+  onNavigate,
+}: {
+  containerClassName?: string;
+  onNavigate?: () => void;
+}) {
   const pathname =
     usePathname();
 
-  return (
+  const links = (
     <>
       {navItems.map(
         ({
@@ -75,6 +81,7 @@ export default function MainNavLinks() {
             <Link
               key={href}
               href={href}
+              onClick={onNavigate}
               className={`transition ${
                 active
                   ? "font-bold text-indigo-700"
@@ -88,4 +95,10 @@ export default function MainNavLinks() {
       )}
     </>
   );
+
+  if (containerClassName) {
+    return <div className={containerClassName}>{links}</div>;
+  }
+
+  return links;
 }

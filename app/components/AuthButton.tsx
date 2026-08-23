@@ -23,7 +23,11 @@ function compactEmail(email?: string | null) {
   return `${name.slice(0, 8)}…@${domain}`;
 }
 
-export default function AuthButton() {
+export default function AuthButton({
+  onNavigate,
+}: {
+  onNavigate?: () => void;
+}) {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
@@ -53,6 +57,7 @@ export default function AuthButton() {
     return (
       <Link
         href="/signin"
+        onClick={onNavigate}
         className="rounded-full bg-slate-950 px-5 py-2.5 text-white"
       >
         Sign In
