@@ -1,12 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    void fetch("/api/auth/funnel", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        event_name: "sign_in_page_view",
+      }),
+      keepalive: true,
+    }).catch(() => undefined);
+  }, []);
 
   async function sendMagicLink() {
     if (!email) {
@@ -24,11 +37,41 @@ export default function SignInPage() {
       },
     });
 
-    setMessage(
-      error
-        ? error.message
-        : "Sign-in link sent. Check your inbox for an email from OpenScholar. If you don't see it within a minute, please check your Spam or Junk folder."
-    );
+    if (error) {
+      void fetch("/api/auth/funnel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          event_name: "sign_in_link_request_failed",
+          error_code:
+            error.status === 429
+              ? "rate_limited"
+              : error.status === 400
+                ? "invalid_request"
+                : "auth_request_failed",
+        }),
+        keepalive: true,
+      }).catch(() => undefined);
+
+      setMessage(error.message);
+    } else {
+      void fetch("/api/auth/funnel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          event_name: "sign_in_link_requested",
+        }),
+        keepalive: true,
+      }).catch(() => undefined);
+
+      setMessage(
+        "Sign-in link sent. Check your inbox for an email from OpenScholar. If you don't see it within a minute, please check your Spam or Junk folder."
+      );
+    }
 
     setLoading(false);
   }

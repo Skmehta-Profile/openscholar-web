@@ -6,7 +6,23 @@ import { supabase } from "@/lib/supabaseClient";
 export default function AuthCallbackPage() {
   useEffect(() => {
     async function finishLogin() {
-      await supabase.auth.getSession();
+      const { data } = await supabase.auth.getSession();
+      const session = data.session;
+
+      if (session?.user && session.access_token) {
+        void fetch("/api/auth/funnel", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            event_name: "sign_in_completed",
+          }),
+          keepalive: true,
+        }).catch(() => undefined);
+      }
+
       window.location.href = "/library";
     }
 
