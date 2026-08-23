@@ -94,7 +94,8 @@ function cleanOpenAlexId(
 }
 
 async function resolveInstitutionId(
-  name: string
+  name: string,
+  apiKey: string
 ) {
   const url =
     new URL(
@@ -109,6 +110,11 @@ async function resolveInstitutionId(
   url.searchParams.set(
     "per-page",
     "1"
+  );
+
+  url.searchParams.set(
+    "api_key",
+    apiKey
   );
 
   const response =
@@ -145,7 +151,8 @@ async function resolveAuthorId(
   name: string,
   institutionId:
     | string
-    | null
+    | null,
+  apiKey: string
 ) {
   const url =
     new URL(
@@ -160,6 +167,11 @@ async function resolveAuthorId(
   url.searchParams.set(
     "per-page",
     "10"
+  );
+
+  url.searchParams.set(
+    "api_key",
+    apiKey
   );
 
   if (
@@ -205,6 +217,21 @@ export async function POST(
   request: Request
 ) {
   try {
+    const apiKey =
+      process.env.OPENALEX_API_KEY?.trim() || "";
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            "OpenAlex API key is not configured.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
     const authorization =
       request.headers.get(
         "authorization"
@@ -474,14 +501,16 @@ export async function POST(
       const institutionId =
         institution
           ? await resolveInstitutionId(
-              institution
+              institution,
+              apiKey
             )
           : null;
 
       const authorId =
         await resolveAuthorId(
           query,
-          institutionId
+          institutionId,
+          apiKey
         );
 
       if (
@@ -613,6 +642,11 @@ export async function POST(
       "100"
     );
 
+    url.searchParams.set(
+      "api_key",
+      apiKey
+    );
+
     const response =
       await fetch(
         url.toString(),
@@ -631,8 +665,7 @@ export async function POST(
       console.error(
         "OpenAlex alert check failed:",
         response.status,
-        errorText,
-        url.toString()
+        errorText
       );
 
       return NextResponse.json(

@@ -124,6 +124,21 @@ function normalizeDoi(
 export async function GET(
   request: NextRequest
 ) {
+  const apiKey =
+    process.env.OPENALEX_API_KEY?.trim() || "";
+
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error:
+          "OpenAlex API key is not configured.",
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+
   const searchParams =
     request.nextUrl.searchParams;
 
@@ -169,8 +184,15 @@ export async function GET(
         identifier
       )}`;
 
+    const url =
+      new URL(openAlexUrl);
+    url.searchParams.set(
+      "api_key",
+      apiKey
+    );
+
     const response =
-      await fetch(openAlexUrl, {
+      await fetch(url.toString(), {
         headers: {
           Accept:
             "application/json",

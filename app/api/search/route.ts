@@ -79,7 +79,8 @@ function normalizeDoi(value: string) {
 }
 
 async function resolveInstitutionId(
-  institutionName: string
+  institutionName: string,
+  apiKey: string
 ): Promise<string | null> {
   if (!institutionName.trim()) {
     return null;
@@ -98,6 +99,11 @@ async function resolveInstitutionId(
   institutionUrl.searchParams.set(
     "per-page",
     "1"
+  );
+
+  institutionUrl.searchParams.set(
+    "api_key",
+    apiKey
   );
 
   const response =
@@ -131,7 +137,8 @@ async function resolveInstitutionId(
 
 async function resolveAuthorId(
   authorName: string,
-  institutionId: string | null
+  institutionId: string | null,
+  apiKey: string
 ): Promise<string | null> {
   const authorUrl =
     new URL(
@@ -146,6 +153,11 @@ async function resolveAuthorId(
   authorUrl.searchParams.set(
     "per-page",
     "10"
+  );
+
+  authorUrl.searchParams.set(
+    "api_key",
+    apiKey
   );
 
   if (institutionId) {
@@ -188,6 +200,22 @@ export async function GET(
   request: Request
 ) {
   try {
+    const apiKey =
+      process.env.OPENALEX_API_KEY?.trim() || "";
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          results: [],
+          error:
+            "OpenAlex API key is not configured.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
     const {
       searchParams,
     } =
@@ -266,7 +294,8 @@ export async function GET(
       const institutionId =
         institution
           ? await resolveInstitutionId(
-              institution
+              institution,
+              apiKey
             )
           : null;
 
@@ -284,7 +313,8 @@ export async function GET(
       const authorId =
         await resolveAuthorId(
           query,
-          institutionId
+          institutionId,
+          apiKey
         );
 
       if (!authorId) {
@@ -403,6 +433,11 @@ export async function GET(
       String(page)
     );
 
+    url.searchParams.set(
+      "api_key",
+      apiKey
+    );
+
     const response =
       await fetch(
         url.toString(),
@@ -420,8 +455,7 @@ export async function GET(
       console.error(
         "OpenAlex request failed:",
         response.status,
-        errorText,
-        url.toString()
+        errorText
       );
 
       return NextResponse.json(
