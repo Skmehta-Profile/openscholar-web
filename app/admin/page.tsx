@@ -542,55 +542,21 @@ export default function AdminDashboardPage() {
     /*
      * 4. ALERT ENGINE
      *
-     * The baseline is the current
-     * time, so this health check
-     * does not create alert results.
+     * The alert check is protected and must run against an authenticated
+     * user-owned alert. If the current administrator has no alert yet, the
+     * system should report a neutral non-failing state instead of marking the
+     * whole platform unavailable.
      */
 
     const alertStart =
       performance.now();
 
     try {
-      const response =
-        await fetch(
-          "/api/alerts/check",
-          {
-            method:
-              "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            cache:
-              "no-store",
-
-            body:
-              JSON.stringify({
-                query:
-                  "cyanobacteria",
-
-                searchMode:
-                  "keyword",
-
-                workType:
-                  "any",
-
-                institution:
-                  null,
-
-                publicationYear:
-                  "any",
-
-                openAccessOnly:
-                  false,
-
-                baseline:
-                  new Date().toISOString(),
-              }),
-          }
-        );
+      const {
+        data: sessionData,
+        error: sessionError,
+      } =
+        await supabase.auth.getSession();
 
       const elapsed =
         Math.round(
@@ -598,39 +564,156 @@ export default function AdminDashboardPage() {
             alertStart
         );
 
+      const session =
+        sessionData?.session;
+      const accessToken =
+        session?.access_token;
+
       if (
-        !response.ok
+        sessionError ||
+        !accessToken
       ) {
         updateHealthItem(
           "alerts",
           {
             status:
-              "unavailable",
+              "warning",
 
             detail:
-              `Alert engine returned HTTP ${response.status}`,
+              "Authentication required to test the alert engine",
 
             responseTime:
               elapsed,
           }
         );
       } else {
-        updateHealthItem(
-          "alerts",
-          {
-            status:
-              elapsed >
-              5000
-                ? "warning"
-                : "operational",
+        const userId =
+          session.user?.id;
 
-            detail:
-              "Alert checker executed successfully",
+        if (!userId) {
+          updateHealthItem(
+            "alerts",
+            {
+              status:
+                "warning",
 
-            responseTime:
-              elapsed,
+              detail:
+                "Alert check is not testable without an authenticated user",
+
+              responseTime:
+                elapsed,
+            }
+          );
+        } else {
+          const {
+            data: ownedAlert,
+            error: alertLookupError,
+          } = await supabase
+            .from(
+              "research_alerts"
+            )
+            .select("id")
+            .eq(
+              "user_id",
+              userId
+            )
+            .order(
+              "created_at",
+              {
+                ascending: false,
+              }
+            )
+            .limit(1)
+            .maybeSingle();
+
+          if (
+            alertLookupError ||
+            !ownedAlert?.id
+          ) {
+            updateHealthItem(
+              "alerts",
+              {
+                status:
+                  "warning",
+
+                detail:
+                  "No user-owned alert available for authenticated health check",
+
+                responseTime:
+                  Math.round(
+                    performance.now() -
+                      alertStart
+                  ),
+              }
+            );
+          } else {
+            const response =
+              await fetch(
+                "/api/alerts/check",
+                {
+                  method:
+                    "POST",
+
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+                    Authorization:
+                      `Bearer ${accessToken}`,
+                  },
+
+                  cache:
+                    "no-store",
+
+                  body:
+                    JSON.stringify({
+                      alert_id:
+                        ownedAlert.id,
+                    }),
+                }
+              );
+
+            const elapsed =
+              Math.round(
+                performance.now() -
+                  alertStart
+              );
+
+            if (
+              !response.ok
+            ) {
+              updateHealthItem(
+                "alerts",
+                {
+                  status:
+                    "unavailable",
+
+                  detail:
+                    `Alert engine returned HTTP ${response.status}`,
+
+                  responseTime:
+                    elapsed,
+                }
+              );
+            } else {
+              updateHealthItem(
+                "alerts",
+                {
+                  status:
+                    elapsed >
+                    5000
+                      ? "warning"
+                      : "operational",
+
+                  detail:
+                    "Authenticated alert checker executed successfully",
+
+                  responseTime:
+                    elapsed,
+                }
+              );
+            }
           }
-        );
+        }
       }
     } catch (error) {
       console.error(
