@@ -91,6 +91,11 @@ type OpenAlexWorksResponse = {
   results?: OpenAlexWork[] | null;
 };
 
+type PublicationFetchReason =
+  | "limit"
+  | "timeout"
+  | "upstream_error";
+
 type FormattedPublication = {
   id: string;
   openAlexUrl: string;
@@ -265,11 +270,10 @@ async function fetchAllAuthorWorks(
   let expectedCount = 0;
   let requestNumber = 0;
 
-  /*
-   * Safety limit: 100 requests × 100 records =
-   * up to 10,000 works per researcher.
-   */
-  const maximumRequests = 100;
+  const maximumRequests = 10;
+  const publicationRequestTimeoutMs = 8_000;
+  let partial = false;
+  let partialReason: PublicationFetchReason | null = null;
 
   while (
     cursor &&
@@ -306,39 +310,58 @@ async function fetchAllAuthorWorks(
       apiKey
     );
 
-    const response = await fetch(
-      url.toString(),
-      {
-        cache: "no-store",
-      }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      publicationRequestTimeoutMs
     );
 
-    if (!response.ok) {
-      const errorText =
-        await response.text();
+    let response: Response;
 
-      console.error(
-        "OpenAlex complete works request failed:",
+    try {
+      response = await fetch(
+        url.toString(),
         {
-          status: response.status,
-          response: errorText,
-          requestedUrl: url
-            .toString()
-            .replace(
-              apiKey,
-              "[HIDDEN_API_KEY]"
-            ),
+          cache: "no-store",
+          signal: controller.signal,
         }
       );
+    } catch (error) {
+      clearTimeout(timeoutId);
 
-      throw new Error(
-        "Unable to load the complete publication list."
-      );
+      partial = true;
+      partialReason =
+        error instanceof DOMException &&
+        error.name === "AbortError"
+          ? "timeout"
+          : "upstream_error";
+      break;
     }
 
-    const data =
-      (await response.json()) as
-        OpenAlexWorksResponse;
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.error(
+        "OpenAlex complete works request failed:",
+        response.status
+      );
+
+      partial = true;
+      partialReason = "upstream_error";
+      break;
+    }
+
+    let data: OpenAlexWorksResponse;
+
+    try {
+      data =
+        (await response.json()) as
+          OpenAlexWorksResponse;
+    } catch {
+      partial = true;
+      partialReason = "upstream_error";
+      break;
+    }
 
     if (requestNumber === 1) {
       expectedCount =
@@ -361,6 +384,11 @@ async function fetchAllAuthorWorks(
     }
 
     cursor = nextCursor;
+
+    if (requestNumber >= maximumRequests) {
+      partial = true;
+      partialReason = "limit";
+    }
   }
 
   const publications =
@@ -372,10 +400,8 @@ async function fetchAllAuthorWorks(
     publications,
     expectedCount,
     requestsUsed: requestNumber,
-    wasLimited:
-      requestNumber >= maximumRequests &&
-      publications.length <
-        expectedCount,
+    wasLimited: partial,
+    partialReason,
   };
 }
 
@@ -431,28 +457,15 @@ export async function GET(
       apiKey
     );
 
-    const [
-      authorResponse,
-      publicationResult,
-    ] = await Promise.all([
-      fetch(authorUrl.toString(), {
+    const authorResponse =
+      await fetch(authorUrl.toString(), {
         cache: "no-store",
-      }),
-
-      fetchAllAuthorWorks(
-        cleanId,
-        apiKey
-      ),
-    ]);
+      });
 
     if (!authorResponse.ok) {
-      const errorText =
-        await authorResponse.text();
-
       console.error(
         "OpenAlex author profile request failed:",
-        authorResponse.status,
-        errorText
+        authorResponse.status
       );
 
       return NextResponse.json(
@@ -476,6 +489,12 @@ export async function GET(
     const author =
       (await authorResponse.json()) as
         OpenAlexAuthor;
+
+    const publicationResult =
+      await fetchAllAuthorWorks(
+        cleanId,
+        apiKey
+      );
 
     const institutions =
       author.last_known_institutions
@@ -624,20 +643,26 @@ export async function GET(
 
         complete:
           !publicationResult.wasLimited,
+
+        publications_partial:
+          publicationResult.wasLimited,
+
+        publications_fetched:
+          publicationResult.publications.length,
+
+        publication_fetch_reason:
+          publicationResult.partialReason,
       },
     });
-  } catch (error) {
+  } catch {
     console.error(
-      "Researcher profile API error:",
-      error
+      "Researcher profile API error."
     );
 
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "An unexpected error occurred while loading the researcher profile.",
+          "An unexpected error occurred while loading the researcher profile.",
       },
       {
         status: 500,
