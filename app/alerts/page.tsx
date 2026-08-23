@@ -712,9 +712,20 @@ if (!alert.is_active) {
         return;
       }
 
-      const baseline =
-        alert.last_checked_at ||
-        alert.created_at;
+      const {
+        data: sessionData,
+      } = await supabase.auth.getSession();
+
+      const accessToken =
+        sessionData.session?.access_token;
+
+      if (!accessToken) {
+        showTemporaryMessage(
+          "Please sign in to run research alerts."
+        );
+
+        return;
+      }
 
       const response =
         await fetch(
@@ -726,29 +737,14 @@ if (!alert.is_active) {
             headers: {
               "Content-Type":
                 "application/json",
+              Authorization:
+                `Bearer ${accessToken}`,
             },
 
             body:
               JSON.stringify({
-                query:
-                  alert.query,
-
-                searchMode:
-                  alert.search_mode,
-
-                workType:
-                  alert.work_type,
-
-                institution:
-                  alert.institution,
-
-                publicationYear:
-                  alert.publication_year,
-
-                openAccessOnly:
-                  alert.open_access_only,
-
-                baseline,
+                alert_id:
+                  alert.id,
               }),
           }
         );

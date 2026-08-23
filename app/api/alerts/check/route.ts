@@ -1,18 +1,25 @@
 import {
   NextResponse,
 } from "next/server";
+import {
+  createClient,
+} from "@supabase/supabase-js";
+import {
+  checkRateLimit,
+} from "@/lib/rateLimit";
 
 type CheckAlertRequest = {
-  query: string;
-  searchMode: string;
-  workType: string;
-  institution:
-    | string
-    | null;
-  publicationYear: string;
-  openAccessOnly: boolean;
-  baseline: string;
+  alert_id: string;
 };
+
+function isUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value
+    )
+  );
+}
 
 type OpenAlexWork = {
   id: string;
@@ -198,11 +205,197 @@ export async function POST(
   request: Request
 ) {
   try {
+    const authorization =
+      request.headers.get(
+        "authorization"
+      );
+
+    if (
+      !authorization?.startsWith(
+        "Bearer "
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Authentication required.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
+    const accessToken =
+      authorization.slice(7);
+
+    const supabaseUrl =
+      process.env
+        .NEXT_PUBLIC_SUPABASE_URL;
+
+    const supabaseAnonKey =
+      process.env
+        .NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    const serviceRoleKey =
+      process.env
+        .SUPABASE_SERVICE_ROLE_KEY;
+
+    if (
+      !supabaseUrl ||
+      !supabaseAnonKey ||
+      !serviceRoleKey
+    ) {
+      console.error(
+        "Supabase alert-check configuration is missing."
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "Alert service is not configured.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const authClient =
+      createClient(
+        supabaseUrl,
+        supabaseAnonKey,
+        {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+        }
+      );
+
+    const {
+      data: userData,
+      error: userError,
+    } = await authClient.auth.getUser(
+      accessToken
+    );
+
+    if (
+      userError ||
+      !userData.user
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid or expired session.",
+        },
+        {
+          status: 401,
+        }
+      );
+    }
+
     const body =
       (await request.json()) as CheckAlertRequest;
 
+    if (
+      !body ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      Object.keys(body).length !== 1 ||
+      !isUuid(body.alert_id)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "A valid alert is required.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const rateLimit =
+      checkRateLimit({
+        key:
+          `alert-check:${userData.user.id}`,
+        limit: 10,
+        windowMs:
+          10 * 60 * 1000,
+      });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            "Too many alert checks. Please wait before trying again.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(
+              rateLimit.retryAfterSeconds
+            ),
+          },
+        }
+      );
+    }
+
+    const adminClient =
+      createClient(
+        supabaseUrl,
+        serviceRoleKey,
+        {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+          },
+        }
+      );
+
+    const {
+      data: alert,
+      error: alertError,
+    } = await adminClient
+      .from("research_alerts")
+      .select(
+        "id, user_id, query, search_mode, work_type, institution, publication_year, open_access_only, created_at, last_checked_at"
+      )
+      .eq("id", body.alert_id)
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+
+    if (alertError) {
+      console.error(
+        "Unable to load alert for checking."
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "Unable to load this research alert.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    if (!alert) {
+      return NextResponse.json(
+        {
+          error:
+            "Research alert not found.",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
     const query =
-      body.query?.trim();
+      alert.query?.trim();
 
     if (
       !query ||
@@ -221,7 +414,8 @@ export async function POST(
 
     const baselineDate =
       new Date(
-        body.baseline
+        alert.last_checked_at ||
+          alert.created_at
       );
 
     if (
@@ -262,15 +456,15 @@ export async function POST(
       string[] = [];
 
     const searchMode =
-      body.searchMode ||
+      alert.search_mode ||
       "keyword";
 
     const workType =
-      body.workType ||
+      alert.work_type ||
       "any";
 
     const institution =
-      body.institution?.trim() ||
+      alert.institution?.trim() ||
       "";
 
     if (
@@ -351,7 +545,7 @@ export async function POST(
     }
 
     if (
-      body.openAccessOnly
+      alert.open_access_only
     ) {
       filters.push(
         "is_oa:true"
@@ -372,12 +566,12 @@ export async function POST(
       baseline;
 
     if (
-      body.publicationYear &&
-      body.publicationYear !==
+      alert.publication_year &&
+      alert.publication_year !==
         "any"
     ) {
       const requestedStart =
-        `${body.publicationYear}-01-01`;
+        `${alert.publication_year}-01-01`;
 
       if (
         requestedStart >
