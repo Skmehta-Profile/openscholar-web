@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import SignInGate from "@/app/components/SignInGate";
 
 type Collection = {
   id: string;
@@ -21,6 +22,7 @@ export default function CollectionsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(true);
+  const [signedIn, setSignedIn] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -41,6 +43,8 @@ export default function CollectionsPage() {
       setLoading(false);
       return;
     }
+
+    setSignedIn(true);
 
     const { data: collectionsData, error: collectionsError } = await supabase
       .from("collections")
@@ -167,6 +171,14 @@ export default function CollectionsPage() {
 
     setCollections((prev) => prev.filter((item) => item.id !== id));
     setMessage("Collection deleted.");
+  }
+
+  if (!loading && !signedIn) {
+    return (
+      <main className="min-h-screen bg-slate-950 px-6 py-12 text-white">
+        <SignInGate />
+      </main>
+    );
   }
 
   return (

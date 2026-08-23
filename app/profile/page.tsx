@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import SignInGate from "@/app/components/SignInGate";
 
 type ClaimStatus =
   | "pending"
@@ -348,6 +349,10 @@ try {
     );
   }
 
+  if (!signedIn) {
+    return <SignInGate />;
+  }
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
       {message && (
@@ -390,34 +395,7 @@ try {
   />
 )}
 
-      {!signedIn ? (
-        <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-700">
-              Get Started
-            </p>
-
-            <h2 className="mt-3 text-3xl font-black text-slate-950">
-              Create your OpenScholar-Web research profile
-            </h2>
-
-            <p className="mt-4 max-w-2xl leading-7 text-slate-600">
-              Sign in first, find your scholarly
-              identity, and claim the profile that
-              belongs to you.
-            </p>
-
-            <Link
-              href="/signin?next=%2Fprofile"
-              className="mt-7 inline-flex rounded-xl bg-indigo-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
-            >
-              Sign in to Continue
-            </Link>
-          </div>
-
-          <ProfileBenefits />
-        </section>
-      ) : !primaryClaim ? (
+      {!primaryClaim ? (
         <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-2xl font-black text-indigo-700">

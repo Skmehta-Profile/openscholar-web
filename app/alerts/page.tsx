@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import SignInGate from "@/app/components/SignInGate";
 import { getMyEntitlements } from "@/lib/entitlements";
 
 type ResearchAlert = {
@@ -1490,6 +1491,10 @@ if (!alert.is_active) {
     );
   }
 
+  if (!signedIn) {
+    return <SignInGate />;
+  }
+
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
       {message && (
@@ -1513,8 +1518,7 @@ if (!alert.is_active) {
 
             <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
               Monitor new scholarly
-              publications in research
-              areas that matter to you.
+              publications in research areas that matter to you.
             </p>
           </div>
 
@@ -1527,75 +1531,7 @@ if (!alert.is_active) {
         </div>
       </section>
 
-      {!signedIn ? (
-        <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[2rem] border border-slate-200 bg-white p-8 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-700">
-              Research Monitoring
-            </p>
-
-            <h2 className="mt-3 text-3xl font-black text-slate-950">
-              Follow new research in
-              your field
-            </h2>
-
-            <p className="mt-4 max-w-2xl leading-7 text-slate-600">
-              Sign in to create alerts
-              and monitor newly
-              published literature
-              matching your research
-              interests.
-            </p>
-
-            <Link
-              href="/signin?next=%2Falerts"
-              className="mt-7 inline-flex rounded-xl bg-indigo-700 px-6 py-3 text-sm font-bold text-white transition hover:bg-indigo-800"
-            >
-              Sign in to Continue
-            </Link>
-          </div>
-
-          <div className="rounded-[2rem] bg-slate-950 p-8 text-white shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
-              Research Alerts
-            </p>
-
-            <h2 className="mt-3 text-2xl font-black">
-              Stay focused on what
-              matters
-            </h2>
-
-            <div className="mt-6 space-y-3">
-              {[
-                "Monitor research topics",
-                "Detect newly published papers",
-                "Preserve search filters",
-                "Choose daily or weekly monitoring",
-                "Save useful papers to your Library",
-              ].map(
-                (item) => (
-                  <div
-                    key={
-                      item
-                    }
-                    className="flex gap-3 rounded-2xl bg-white/10 px-4 py-3"
-                  >
-                    <span className="font-black text-emerald-300">
-                      ✓
-                    </span>
-
-                    <span className="text-sm leading-6 text-slate-200">
-                      {
-                        item
-                      }
-                    </span>
-                  </div>
-                )
-              )}
-            </div>
-          </div>
-        </section>
-      ) : alerts.length ===
+      {alerts.length ===
         0 ? (
         <section className="mt-8 rounded-[2rem] border border-dashed border-slate-300 bg-white p-12 text-center shadow-sm">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-indigo-50 text-2xl font-black text-indigo-700">

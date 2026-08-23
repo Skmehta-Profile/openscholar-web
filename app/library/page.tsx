@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabaseClient";
 import CitationDialog from "@/app/components/CitationDialog";
 import AbstractDialog from "@/app/components/AbstractDialog";
 import PaperNotesDialog from "@/app/components/PaperNotesDialog";
+import SignInGate from "@/app/components/SignInGate";
 import {
   getMyEntitlements,
   type OpenScholarPlan,
@@ -267,6 +268,12 @@ export default function LibraryPage() {
   const [loading, setLoading] =
     useState(true);
 
+  const [signedIn, setSignedIn] =
+    useState(false);
+
+  const [authChecked, setAuthChecked] =
+    useState(false);
+
   const [
     addingToCollection,
     setAddingToCollection,
@@ -333,9 +340,13 @@ const [
       await supabase.auth.getUser();
 
     if (!userData.user) {
+      setAuthChecked(true);
       setLoading(false);
       return;
     }
+
+    setSignedIn(true);
+    setAuthChecked(true);
 
     const currentUser =
       userData.user;
@@ -1225,6 +1236,10 @@ const libraryNearLimit =
       workspaceFilter,
       workspaceItems,
     ]);
+
+  if (authChecked && !signedIn) {
+    return <SignInGate />;
+  }
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-12">
