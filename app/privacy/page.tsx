@@ -239,9 +239,10 @@ export default function PrivacyPage() {
               payment processing, the Razorpay
               checkout script may be loaded from the
               Razorpay domain to support secure
-              payment processing. OpenScholar-Web does
-              not currently use advertising pixels or
-              behavioural-advertising trackers.
+              payment processing. OpenScholar-Web may
+              use Google Ads advertising technology if
+              you grant consent. If you do not grant
+              consent, the Google Ads tag is not loaded.
             </p>
 
             <p className="mt-3">
@@ -419,10 +420,14 @@ export default function PrivacyPage() {
   </p>
 
   <p className="mt-3">
-    OpenScholar-Web does not currently use
-    advertising cookies or third-party
-    behavioural advertising or analytics
-    trackers.
+    OpenScholar-Web may use the Google Ads tag
+    (identifier AW-11127061553) to measure advertising
+    performance and may use advertising cookies or
+    similar technologies for that purpose. The tag is
+    loaded only after you choose to allow advertising
+    cookies through the site notice. You can decline
+    that use, and essential browser storage remains
+    available for core site functionality.
   </p>
 
   <p className="mt-3">
@@ -435,12 +440,10 @@ export default function PrivacyPage() {
   </p>
 
   <p className="mt-3">
-    If OpenScholar-Web later introduces
-    non-essential analytics, advertising or
-    similar tracking technologies, this policy
-    and any consent mechanism required by
-    applicable law may be updated before or
-    when those technologies are introduced.
+    OpenScholar-Web will update this policy and its
+    consent mechanism if the use of non-essential
+    analytics, advertising or similar technologies
+    materially changes.
   </p>
 </section>
 

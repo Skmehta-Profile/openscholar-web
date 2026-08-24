@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "openscholar_storage_notice_dismissed";
+export const ADVERTISING_CONSENT_KEY = "openscholar_advertising_consent";
+export const ADVERTISING_CONSENT_EVENT = "openscholar-advertising-consent";
 
 export default function BrowserStorageNotice() {
   const [visible, setVisible] = useState(false);
@@ -15,22 +16,22 @@ export default function BrowserStorageNotice() {
         return;
       }
 
-      const dismissed =
-        window.localStorage.getItem(STORAGE_KEY) === "true";
-
-      setVisible(!dismissed);
+      setVisible(
+        !window.localStorage.getItem(ADVERTISING_CONSENT_KEY),
+      );
     } catch {
       setVisible(true);
     }
   }, []);
 
-  function dismissNotice() {
+  function chooseConsent(value: "granted" | "denied") {
     try {
       if (typeof window !== "undefined" && "localStorage" in window) {
-        window.localStorage.setItem(STORAGE_KEY, "true");
+        window.localStorage.setItem(ADVERTISING_CONSENT_KEY, value);
+        window.dispatchEvent(new Event(ADVERTISING_CONSENT_EVENT));
       }
     } catch {
-      // Ignore storage errors and dismiss in-memory only.
+      // Keep the choice in memory when browser storage is unavailable.
     }
 
     setVisible(false);
@@ -46,8 +47,9 @@ export default function BrowserStorageNotice() {
         <p className="text-sm leading-6 text-slate-700">
           OpenScholar uses essential browser storage to keep you signed in and
           support features such as recent searches and recently viewed papers.
-          Payment processing is handled securely by Razorpay. We do not
-          currently use advertising or behavioural-tracking cookies.
+          Payment processing is handled securely by Razorpay. With your
+          permission, we may also use Google Ads cookies to measure advertising
+          performance. See our Privacy Policy for details.
         </p>
 
         <div className="flex items-center gap-3 self-start sm:self-auto">
@@ -60,11 +62,19 @@ export default function BrowserStorageNotice() {
 
           <button
             type="button"
-            onClick={dismissNotice}
+            onClick={() => chooseConsent("denied")}
             className="rounded-full border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-            aria-label="Dismiss browser storage notice"
+            aria-label="Decline advertising cookies"
           >
-            Got it
+            Decline
+          </button>
+
+          <button
+            type="button"
+            onClick={() => chooseConsent("granted")}
+            className="rounded-full bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            Allow advertising cookies
           </button>
         </div>
       </div>

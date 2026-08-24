@@ -6,6 +6,7 @@ import "./globals.css";
 import AuthButton from "./components/AuthButton";
 import AdminNavLink from "./components/AdminNavLink";
 import BrowserStorageNotice from "./components/BrowserStorageNotice";
+import GoogleAdsTag from "./components/GoogleAdsTag";
 import MainNavLinks from "./components/MainNavLinks";
 import MobileNav from "./components/MobileNav";
 
@@ -53,6 +54,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-[#f7f9fc] text-slate-950">
         <BrowserStorageNotice />
+        <GoogleAdsTag />
 
         <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur-xl print:hidden">
           <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
