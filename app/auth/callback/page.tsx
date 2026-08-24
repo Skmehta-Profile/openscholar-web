@@ -4,6 +4,62 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+async function recordRegistrationMarker(userId: string) {
+  try {
+    const { error } = await supabase
+      .from("user_registration_events")
+      .insert({ user_id: userId });
+
+    if (!error) {
+      return "new" as const;
+    }
+
+    if (error.code === "23505") {
+      return "existing" as const;
+    }
+
+    return "unknown" as const;
+  } catch {
+    return "unknown" as const;
+  }
+}
+
+function recordGoogleAdsRegistrationConversion(
+  registrationStatus: "new" | "existing" | "unknown",
+) {
+  if (registrationStatus !== "new") {
+    return;
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
+
+  try {
+    const gtag = (
+      window as typeof window & {
+        gtag?: (...args: unknown[]) => void;
+      }
+    ).gtag;
+
+    if (
+      window.localStorage.getItem("openscholar_advertising_consent") !==
+        "granted" ||
+      typeof gtag !== "function"
+    ) {
+      return;
+    }
+
+    gtag("event", "conversion", {
+      send_to: "AW-11127061553/6n4xCOb35-YcELH45bkp",
+      value: 1.0,
+      currency: "INR",
+    });
+  } catch {
+    // Conversion tracking must not affect authentication.
+  }
+}
+
 export default function AuthCallbackPage() {
   const [invalidLink, setInvalidLink] = useState(false);
 
@@ -17,6 +73,12 @@ export default function AuthCallbackPage() {
           setInvalidLink(true);
           return;
         }
+
+        const registrationStatus = await recordRegistrationMarker(
+          session.user.id,
+        );
+
+        recordGoogleAdsRegistrationConversion(registrationStatus);
 
         void fetch("/api/auth/funnel", {
           method: "POST",
